@@ -1,0 +1,609 @@
+# 📋 MODULE 5: APPROVAL WORKFLOWS & VARIANCE RESOLUTION SYSTEM
+
+## **NEURAL CIRCUIT ARCHITECTURE STATUS: PHASE 5 APPROVAL CIRCUITS ENGAGED**
+
+ **Approval Workflow Circuits**: LOADED with intelligent routing and CEO optimization protocols
+ **Variance Resolution Engine**: ARMED with pattern analysis and fraud detection algorithms
+ **CEO/SYSTEM_ADMIN Authority Matrix**: ENHANCED with instant approval capabilities and emergency override protocols
+ **Investigation Framework**: OPERATIONAL with forensic analysis and evidence collection systems
+ **Business Logic Validation**: MONITORING approvals, variances, variance_investigations table integrity
+
+---
+
+## **MODULE SCOPE & BUSINESS CONTEXT**
+
+This module serves as the critical decision-making hub for all exceptional situations requiring management oversight. It implements sophisticated approval workflows, comprehensive variance investigation capabilities, pattern recognition for fraud detection, and optimized CEO interfaces for rapid decision-making. Every approval generates complete audit trails while maintaining operational efficiency through intelligent automation and priority-based routing.
+
+## **CONTROLLERS & FUNCTIONALITY BREAKDOWN**
+
+### **1. ApprovalController - Central Approval Engine & Workflow Management**
+
+**File**: `app/Http/Controllers/ApprovalController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive approval dashboard with intelligent prioritization and decision support analytics
+- **Data Integration**:
+  1. Query approvals table with exact column names (variance_id, approval_type, approval_status, approver_user_id)
+  2. Join with variances table for complete context (variance_percentage, variance_amount_liters, reading_id)
+  3. Include related variance_investigations for investigation status and findings
+  4. Calculate approval turnaround times and efficiency metrics
+  5. Generate priority scoring based on financial impact, pattern significance, and aging
+  6. Include historical approval patterns for decision consistency analysis
+- **Intelligent Prioritization Algorithm**:
+  ```php
+  $priorityScore = ($variancePercentage * 0.4) +
+                   ($financialImpact * 0.3) +
+                   ($agingDays * 0.2) +
+                   ($patternSignificance * 0.1);
+  ```
+- **CEO Dashboard Optimization**:
+  - **Critical Queue**: Variances requiring immediate CEO attention (>10% or fraud indicators)
+  - **Standard Queue**: Normal approval workflow items with comprehensive context
+  - **Pattern Alerts**: Systematic issues requiring strategic intervention
+  - **Emergency Items**: Time-sensitive decisions affecting operations
+- **Decision Support Analytics**:
+  - Historical approval pattern analysis for consistency guidance
+  - Financial impact projections for informed decision-making
+  - Investigation findings summary with evidence presentation
+  - Recommended actions based on similar case outcomes
+- **Tables Used**: `approvals`, `variances`, `variance_investigations`, `audit_logs`, `users`, `stations`
+
+##### **create(Request $request)**
+- **Business Logic**: Automatic approval request generation with intelligent routing and context assembly
+- **Approval Request Creation Workflow**:
+  1. **Variance Analysis**: Calculate significance, financial impact, and pattern indicators
+  2. **Context Assembly**: Gather all relevant data for decision support
+  3. **Route Determination**: Intelligent routing based on approval type and user authority
+  4. **Priority Assignment**: Automatic priority scoring with aging factors
+  5. **Notification Generation**: Stakeholder alerts with appropriate urgency levels
+  6. **SLA Setup**: Service level agreement timing with escalation triggers
+- **Automatic Routing Logic**:
+  ```php
+  if ($variancePercentage >= config('fuel.critical_variance_threshold')) {
+      $approvalRoute = 'CEO_URGENT';
+      $slaHours = 2;
+  } elseif ($this->detectFraudPatterns($varianceData)) {
+      $approvalRoute = 'CEO_INVESTIGATION';
+      $slaHours = 4;
+  } elseif ($financialImpact >= config('fuel.high_impact_threshold')) {
+      $approvalRoute = 'CEO_STANDARD';
+      $slaHours = 8;
+  } else {
+      $approvalRoute = 'MANAGER_APPROVAL';
+      $slaHours = 24;
+  }
+  ```
+- **CEO/SYSTEM_ADMIN Auto-Approval**: Immediate processing with enhanced audit trail generation
+
+##### **approve($id, Request $request)**
+- **Business Logic**: Comprehensive approval processing with decision tracking and implementation coordination
+- **Approval Decision Workflow**:
+  1. **Authority Validation**: Verify approver has sufficient authority for decision type
+  2. **Context Review**: Present complete decision context with supporting analytics
+  3. **Decision Recording**: Capture approval decision with mandatory justification
+  4. **Implementation Coordination**: Trigger necessary system updates and notifications
+  5. **Audit Trail Generation**: Complete decision documentation with hash chain integrity
+  6. **Follow-up Setup**: Establish monitoring for decision effectiveness tracking
+- **CEO Approval Interface Optimization**:
+  - **One-Click Approval**: Streamlined interface for efficient decision-making
+  - **Bulk Approval**: Mass approval capabilities for similar variance types
+  - **Conditional Approval**: Approval with conditions and monitoring requirements
+  - **Override Approval**: Emergency approval with enhanced justification requirements
+- **Decision Impact Processing**:
+  ```php
+  switch ($approvalDecision) {
+      case 'APPROVED':
+          $this->implementVarianceAcceptance($varianceId);
+          $this->updateInventoryRecords($varianceData);
+          $this->generateStakeholderNotifications($approvalData);
+          break;
+      case 'APPROVED_WITH_CONDITIONS':
+          $this->implementConditionalAcceptance($varianceId, $conditions);
+          $this->setupMonitoringRequirements($conditions);
+          break;
+      case 'INVESTIGATION_REQUIRED':
+          $this->initiateDetailedInvestigation($varianceId);
+          $this->assignInvestigationTeam($investigationData);
+          break;
+  }
+  ```
+
+##### **reject($id, Request $request)**
+- **Business Logic**: Approval rejection with investigation triggers and corrective action coordination
+- **Rejection Processing Workflow**:
+  1. **Rejection Reasoning**: Mandatory categorization and detailed justification
+  2. **Investigation Trigger**: Automatic investigation initiation for rejected variances
+  3. **Corrective Action Planning**: Required action plan development and assignment
+  4. **Staff Notification**: Immediate communication to affected personnel
+  5. **Follow-up Scheduling**: Mandatory resolution timeline and monitoring setup
+- **Investigation Initiation**:
+  - Automatic assignment of investigation team based on variance type and severity
+  - Evidence collection protocols with timeline requirements
+  - Stakeholder interview scheduling and documentation requirements
+  - Corrective action development with implementation monitoring
+
+##### **bulk($request)**
+- **Business Logic**: Bulk approval processing for efficiency with pattern recognition and validation
+- **Bulk Processing Features**:
+  1. **Pattern Recognition**: Identify similar variances eligible for bulk processing
+  2. **Validation Checks**: Ensure all selected items meet bulk approval criteria
+  3. **Risk Assessment**: Analyze collective impact of bulk approval decisions
+  4. **Implementation Coordination**: Synchronized processing with rollback capabilities
+  5. **Audit Trail Maintenance**: Individual audit entries for each bulk-processed item
+- **CEO Bulk Approval Authority**: Enhanced bulk processing capabilities with override authority
+
+##### **analytics(Request $request)**
+- **Business Logic**: Advanced approval analytics with decision pattern analysis and optimization recommendations
+- **Analytics Features**:
+  1. **Decision Pattern Analysis**: Historical approval patterns with consistency scoring
+  2. **Turnaround Time Analytics**: Approval efficiency metrics with improvement recommendations
+  3. **Financial Impact Tracking**: Cost-benefit analysis of approval decisions
+  4. **Staff Performance Analytics**: Individual and team approval effectiveness metrics
+  5. **Predictive Analytics**: Future approval volume and complexity forecasting
+- **Strategic Decision Support**:
+  - Threshold optimization recommendations based on historical effectiveness
+  - Workflow improvement suggestions for efficiency enhancement
+  - Training needs identification for staff development
+  - Policy adjustment recommendations for operational improvement
+
+---
+
+### **2. VarianceInvestigationController - Forensic Investigation Engine**
+
+**File**: `app/Http/Controllers/VarianceInvestigationController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive investigation management with forensic capabilities and case tracking
+- **Investigation Dashboard**:
+  1. Query variance_investigations table with complete case context and timeline
+  2. Track investigation progress with milestone completion and evidence collection
+  3. Monitor investigator performance and case resolution efficiency
+  4. Generate pattern analysis for systematic issue identification
+  5. Provide case prioritization with resource allocation optimization
+- **Case Management Features**:
+  - **Active Investigations**: Current cases with progress tracking and deadline monitoring
+  - **Pending Assignment**: New cases requiring investigator allocation
+  - **Completed Cases**: Historical investigations with outcome analysis
+  - **Pattern Cases**: Related investigations suggesting systematic issues
+- **Investigation Analytics**:
+  - Resolution time analysis with efficiency metrics
+  - Investigation quality scoring based on thoroughness and accuracy
+  - Pattern recognition for fraud detection and prevention
+  - Resource utilization optimization for investigation capacity
+
+##### **create($varianceId, Request $request)**
+- **Business Logic**: Investigation initiation with automatic evidence collection and team assignment
+- **Investigation Setup Workflow**:
+  1. **Case Classification**: Determine investigation type and complexity level
+  2. **Team Assignment**: Automatic investigator allocation based on expertise and availability
+  3. **Evidence Collection Setup**: Automated gathering of all relevant data and documentation
+  4. **Timeline Establishment**: Investigation timeline with milestone tracking
+  5. **Stakeholder Notification**: Inform all relevant parties of investigation initiation
+- **Automatic Evidence Collection**:
+  ```php
+  $evidencePackage = [
+      'readings_data' => $this->collectReadingsHistory($varianceId, 30),
+      'staff_activity' => $this->getStaffActivityLogs($stationId, $varianceDate),
+      'equipment_logs' => $this->getEquipmentPerformanceData($tankId, $varianceDate),
+      'delivery_records' => $this->getDeliveryHistory($tankId, 7),
+      'customer_patterns' => $this->getCustomerActivityData($stationId, $varianceDate),
+      'environmental_data' => $this->getWeatherAndTemperatureData($varianceDate),
+      'security_footage' => $this->requestSecurityFootageAccess($stationId, $varianceDate)
+  ];
+  ```
+- **Team Assignment Algorithm**:
+  - Investigator expertise matching with case requirements
+  - Workload balancing for optimal resource utilization
+  - Geographic assignment for on-site investigation efficiency
+  - Conflict of interest validation for investigation integrity
+
+##### **investigate($id, Request $request)**
+- **Business Logic**: Active investigation management with evidence analysis and finding documentation
+- **Investigation Framework**:
+  1. **Evidence Analysis**: Systematic examination of collected data with pattern recognition
+  2. **Timeline Reconstruction**: Chronological event sequence with discrepancy identification
+  3. **Stakeholder Interviews**: Structured interview process with documentation requirements
+  4. **Technical Analysis**: Equipment performance evaluation and calibration verification
+  5. **Root Cause Analysis**: Systematic identification of variance causes with validation
+- **Forensic Analysis Tools**:
+  - **Data Timeline Visualization**: Interactive timeline with event correlation
+  - **Pattern Recognition Engine**: Advanced algorithms for fraud detection
+  - **Statistical Analysis**: Variance significance testing with confidence intervals
+  - **Equipment Diagnostics**: Technical evaluation with maintenance correlation
+- **Investigation Quality Controls**:
+  - Mandatory evidence validation with cross-referencing requirements
+  - Peer review process for investigation findings
+  - Supervisor oversight with quality scoring
+  - Documentation standards with completeness verification
+
+##### **conclude($id, Request $request)**
+- **Business Logic**: Investigation conclusion with findings documentation and recommendation generation
+- **Conclusion Workflow**:
+  1. **Findings Summary**: Comprehensive documentation of investigation results
+  2. **Root Cause Determination**: Definitive cause identification with supporting evidence
+  3. **Recommendation Development**: Actionable recommendations for prevention and resolution
+  4. **Implementation Planning**: Detailed action plan with timeline and responsibility assignment
+  5. **Case Closure**: Formal case closure with quality validation and archival
+- **Finding Classification System**:
+  - **EQUIPMENT_FAILURE**: Mechanical or technical equipment issues
+  - **OPERATIONAL_ERROR**: Human error or process deviation
+  - **MEASUREMENT_INACCURACY**: Calibration or measurement system issues
+  - **FRAUD_SUSPECTED**: Potential fraudulent activity requiring escalation
+  - **EXTERNAL_FACTORS**: Environmental or external causes beyond control
+  - **SYSTEMIC_ISSUE**: Process or system-level problems requiring policy changes
+- **Quality Assurance Validation**:
+  ```php
+  $investigationQuality = $this->validateInvestigationCompleteness([
+      'evidence_collection_score' => $evidenceCompleteness,
+      'analysis_thoroughness' => $analysisDepth,
+      'documentation_quality' => $documentationScore,
+      'timeline_accuracy' => $timelineValidation,
+      'recommendation_quality' => $recommendationScore
+  ]);
+  ```
+
+##### **pattern($request)**
+- **Business Logic**: Advanced pattern analysis for systematic issue identification and fraud detection
+- **Pattern Analysis Engine**:
+  1. **Temporal Pattern Analysis**: Time-based variance patterns with seasonal adjustment
+  2. **Geographic Pattern Analysis**: Location-based variance clustering
+  3. **Staff Pattern Analysis**: Individual and team variance correlation
+  4. **Equipment Pattern Analysis**: Equipment-related variance clustering
+  5. **Customer Pattern Analysis**: Customer behavior correlation with variances
+- **Fraud Detection Algorithms**:
+  - Statistical anomaly detection with multi-dimensional analysis
+  - Behavioral pattern recognition for suspicious activity identification
+  - Network analysis for coordinated fraud detection
+  - Machine learning models for predictive fraud prevention
+- **Systematic Issue Identification**:
+  - Process failure pattern recognition
+  - Training needs identification through error pattern analysis
+  - Equipment maintenance correlation with variance patterns
+  - Policy effectiveness evaluation through outcome analysis
+
+---
+
+### **3. WorkflowController - Automated Workflow Management & Optimization**
+
+**File**: `app/Http/Controllers/WorkflowController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive workflow monitoring with performance optimization and bottleneck identification
+- **Workflow Dashboard**:
+  1. Monitor all active workflows with real-time status tracking
+  2. Identify bottlenecks and delays with automatic escalation triggers
+  3. Track workflow efficiency with performance metrics and optimization recommendations
+  4. Generate workflow analytics with process improvement insights
+  5. Provide resource allocation optimization for workflow capacity management
+- **Performance Metrics**:
+  - **Throughput Analysis**: Workflow completion rates with trend analysis
+  - **Bottleneck Identification**: Process delays with root cause analysis
+  - **Resource Utilization**: Staff and system capacity optimization
+  - **SLA Compliance**: Service level agreement adherence with improvement tracking
+
+##### **optimize(Request $request)**
+- **Business Logic**: Workflow optimization with machine learning and process improvement recommendations
+- **Optimization Engine**:
+  1. **Process Analysis**: Workflow step analysis with efficiency scoring
+  2. **Resource Optimization**: Staff and system resource allocation optimization
+  3. **Automation Opportunities**: Identification of automation potential with ROI analysis
+  4. **Threshold Optimization**: Approval threshold adjustment recommendations
+  5. **Performance Enhancement**: Process improvement recommendations with impact analysis
+- **Machine Learning Integration**:
+  - Predictive workflow modeling for capacity planning
+  - Automated threshold adjustment based on historical performance
+  - Resource allocation optimization using demand forecasting
+  - Process improvement recommendations using outcome analysis
+
+##### **escalation(Request $request)**
+- **Business Logic**: Automated escalation management with intelligent routing and urgency assessment
+- **Escalation Framework**:
+  1. **Trigger Detection**: Automatic identification of escalation conditions
+  2. **Urgency Assessment**: Priority scoring with impact analysis
+  3. **Route Optimization**: Intelligent escalation routing with availability checking
+  4. **Notification Management**: Stakeholder communication with appropriate urgency levels
+  5. **Resolution Tracking**: Escalation outcome monitoring with effectiveness analysis
+- **CEO Escalation Optimization**:
+  - Priority filtering for CEO attention with significance scoring
+  - Context packaging for efficient decision-making
+  - Alternative resolution recommendation before CEO escalation
+  - Emergency escalation protocols for critical situations
+
+---
+
+### **4. DecisionSupportController - AI-Powered Decision Analytics**
+
+**File**: `app/Http/Controllers/DecisionSupportController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive decision support with AI-powered analytics and recommendation engine
+- **Decision Support Dashboard**:
+  1. **Historical Decision Analysis**: Past decision outcomes with effectiveness scoring
+  2. **Predictive Analytics**: Decision outcome prediction with confidence intervals
+  3. **Alternative Scenario Analysis**: Multiple option evaluation with comparative metrics
+  4. **Risk Assessment**: Decision risk analysis with mitigation recommendations
+  5. **Strategic Impact Analysis**: Long-term decision impact with strategic alignment evaluation
+- **AI-Powered Recommendations**:
+  - Machine learning models for optimal decision prediction
+  - Pattern recognition for decision consistency optimization
+  - Outcome prediction with probability analysis
+  - Risk mitigation recommendations with effectiveness scoring
+
+##### **analyze($approvalId, Request $request)**
+- **Business Logic**: Deep decision analysis with comprehensive context and outcome prediction
+- **Analysis Framework**:
+  1. **Context Analysis**: Complete situation assessment with all relevant factors
+  2. **Historical Comparison**: Similar case analysis with outcome correlation
+  3. **Risk Assessment**: Comprehensive risk evaluation with mitigation strategies
+  4. **Impact Prediction**: Decision outcome prediction with confidence scoring
+  5. **Recommendation Generation**: AI-powered recommendation with justification
+- **CEO Decision Optimization**:
+  - Executive summary generation for efficient decision-making
+  - Key decision factors highlighting with importance weighting
+  - Alternative options presentation with comparative analysis
+  - Strategic alignment assessment with organizational objectives
+
+##### **recommend(Request $request)**
+- **Business Logic**: AI-powered recommendation engine with learning integration and optimization
+- **Recommendation Engine**:
+  1. **Pattern Learning**: Continuous learning from decision outcomes
+  2. **Contextual Recommendations**: Situation-specific recommendation generation
+  3. **Confidence Scoring**: Recommendation reliability assessment
+  4. **Alternative Options**: Multiple recommendation options with trade-off analysis
+  5. **Implementation Guidance**: Detailed implementation recommendations with success factors
+- **Continuous Learning Integration**:
+  - Decision outcome feedback integration for model improvement
+  - Pattern recognition enhancement through historical analysis
+  - Recommendation effectiveness tracking with algorithm optimization
+  - Strategic decision pattern learning for organizational alignment
+
+---
+
+## **VIEWS & USER INTERFACE SPECIFICATIONS**
+
+### **1. approvals/index.blade.php - CEO Approval Command Center**
+
+**Design Requirements**:
+- **Executive-Optimized Interface** designed specifically for rapid CEO decision-making
+- **Priority-Based Layout** with intelligent categorization and visual urgency indicators
+- **One-Click Approval System** with comprehensive context display and decision support
+- **Mobile CEO Interface** optimized for executive decision-making on mobile devices
+- **Real-Time Updates** with WebSocket integration for immediate notification of new items
+
+**CEO Dashboard Features**:
+- **Critical Decisions Panel**: High-priority items requiring immediate CEO attention
+- **Context-Rich Display**: Complete decision context with supporting analytics and recommendations
+- **Bulk Action Interface**: Efficient mass approval capabilities for similar items
+- **Historical Pattern Analysis**: Decision consistency tracking with pattern recognition
+- **Strategic Impact Assessment**: Long-term impact analysis for major decisions
+
+**Advanced Decision Support**:
+- **AI Recommendation Engine**: Machine learning-powered decision recommendations
+- **Risk Assessment Matrix**: Comprehensive risk analysis with mitigation strategies
+- **Alternative Scenario Modeling**: Multiple option evaluation with outcome prediction
+- **Financial Impact Calculator**: Real-time financial impact assessment with ROI analysis
+
+### **2. approvals/create.blade.php - Approval Request Generation**
+
+**Intelligent Request Interface**:
+- **Automatic Context Assembly**: AI-powered gathering of all relevant decision factors
+- **Smart Routing Logic**: Intelligent determination of approval authority requirements
+- **Priority Assessment**: Automated priority scoring with urgency classification
+- **Supporting Documentation**: Automatic evidence collection and presentation
+- **Timeline Management**: SLA setup with escalation trigger configuration
+
+**Request Optimization Features**:
+- **Pattern Recognition**: Identification of similar cases with historical outcome analysis
+- **Decision Support Package**: Comprehensive information assembly for informed decision-making
+- **Recommendation Integration**: AI-powered recommendation inclusion with justification
+- **Alternative Analysis**: Multiple resolution option presentation with impact comparison
+
+### **3. variance-investigations/index.blade.php - Investigation Command Center**
+
+**Forensic Investigation Interface**:
+- **Case Management Dashboard** with comprehensive case tracking and progress monitoring
+- **Evidence Collection Portal** with automatic data gathering and organization
+- **Investigation Timeline** with milestone tracking and deadline management
+- **Pattern Analysis Engine** with fraud detection and systematic issue identification
+- **Resource Allocation** optimization with investigator assignment and workload balancing
+
+**Advanced Investigation Tools**:
+- **Data Visualization Engine** with interactive timeline and pattern recognition displays
+- **Forensic Analysis Tools** with statistical analysis and anomaly detection
+- **Evidence Cross-Reference** system with correlation analysis and validation
+- **Investigation Quality Control** with peer review and supervisor oversight
+
+### **4. variance-investigations/investigate.blade.php - Active Investigation Interface**
+
+**Investigation Workflow Interface**:
+- **Evidence Analysis Panel** with systematic examination tools and pattern recognition
+- **Timeline Reconstruction** with chronological event analysis and discrepancy identification
+- **Stakeholder Interview Portal** with structured interview process and documentation
+- **Technical Analysis Tools** with equipment diagnostics and performance evaluation
+- **Root Cause Analysis** framework with systematic cause identification and validation
+
+**Quality Assurance Features**:
+- **Evidence Validation System** with cross-referencing requirements and verification
+- **Documentation Standards** with completeness checking and quality scoring
+- **Peer Review Process** with collaborative analysis and validation
+- **Investigation Progress Tracking** with milestone completion and quality metrics
+
+### **5. workflows/index.blade.php - Workflow Optimization Center**
+
+**Workflow Management Dashboard**:
+- **Real-Time Workflow Monitoring** with status tracking and performance metrics
+- **Bottleneck Identification** with process delay analysis and optimization recommendations
+- **Resource Utilization** optimization with capacity planning and allocation
+- **Performance Analytics** with efficiency scoring and improvement tracking
+- **Automation Opportunities** identification with ROI analysis and implementation planning
+
+**Optimization Features**:
+- **Process Analysis Engine** with workflow step evaluation and efficiency scoring
+- **Machine Learning Integration** with predictive modeling and optimization recommendations
+- **Threshold Management** with dynamic adjustment and performance monitoring
+- **Escalation Management** with intelligent routing and urgency assessment
+
+---
+
+## **ROUTES DEFINITION**
+
+```php
+// Approval Management Routes (Role-Based Access)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
+    Route::get('/approvals/create', [ApprovalController::class, 'create'])->name('approvals.create');
+    Route::post('/approvals', [ApprovalController::class, 'store'])->name('approvals.store');
+    Route::get('/approvals/analytics', [ApprovalController::class, 'analytics'])->name('approvals.analytics');
+});
+
+// CEO Approval Authority (CEO/SYSTEM_ADMIN Only)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::post('/approvals/{id}/approve', [ApprovalController::class, 'approve'])->name('approvals.approve');
+    Route::post('/approvals/{id}/reject', [ApprovalController::class, 'reject'])->name('approvals.reject');
+    Route::post('/approvals/bulk', [ApprovalController::class, 'bulk'])->name('approvals.bulk');
+    Route::post('/approvals/{id}/override', [ApprovalController::class, 'override'])->name('approvals.override');
+});
+
+// Variance Investigation Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER,AUDITOR'])->group(function () {
+    Route::get('/variance-investigations', [VarianceInvestigationController::class, 'index'])->name('variance_investigations.index');
+    Route::get('/variance-investigations/{id}', [VarianceInvestigationController::class, 'show'])->name('variance_investigations.show');
+    Route::get('/variance-investigations/patterns', [VarianceInvestigationController::class, 'patterns'])->name('variance_investigations.patterns');
+});
+
+// Investigation Management (Senior Staff)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,AUDITOR'])->group(function () {
+    Route::post('/variance-investigations', [VarianceInvestigationController::class, 'create'])->name('variance_investigations.create');
+    Route::get('/variance-investigations/{id}/investigate', [VarianceInvestigationController::class, 'investigate'])->name('variance_investigations.investigate');
+    Route::put('/variance-investigations/{id}/investigate', [VarianceInvestigationController::class, 'updateInvestigation'])->name('variance_investigations.update_investigation');
+    Route::post('/variance-investigations/{id}/conclude', [VarianceInvestigationController::class, 'conclude'])->name('variance_investigations.conclude');
+});
+
+// Workflow Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/workflows', [WorkflowController::class, 'index'])->name('workflows.index');
+    Route::post('/workflows/optimize', [WorkflowController::class, 'optimize'])->name('workflows.optimize');
+    Route::get('/workflows/escalation', [WorkflowController::class, 'escalation'])->name('workflows.escalation');
+    Route::post('/workflows/escalation/{id}', [WorkflowController::class, 'processEscalation'])->name('workflows.process_escalation');
+});
+
+// Decision Support System (CEO/SYSTEM_ADMIN)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/decision-support', [DecisionSupportController::class, 'index'])->name('decision_support.index');
+    Route::get('/decision-support/{approvalId}/analyze', [DecisionSupportController::class, 'analyze'])->name('decision_support.analyze');
+    Route::post('/decision-support/recommend', [DecisionSupportController::class, 'recommend'])->name('decision_support.recommend');
+});
+
+// Emergency Approval Routes (CEO/SYSTEM_ADMIN Override)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::post('/approvals/emergency-override', [ApprovalController::class, 'emergencyOverride'])->name('approvals.emergency_override');
+    Route::post('/workflows/emergency-escalation', [WorkflowController::class, 'emergencyEscalation'])->name('workflows.emergency_escalation');
+});
+```
+
+---
+
+## **DATABASE TABLES UTILIZED**
+
+### **Primary Approval Tables:**
+- **approvals**: Core approval tracking with decision history (variance_id, approval_type, approval_status, approver_user_id, approved_at)
+- **variances**: Variance data requiring approval decisions (variance_percentage, variance_amount_liters, financial_impact)
+- **variance_investigations**: Investigation tracking with findings (lead_investigator_user_id, investigation_status, findings, recommendations)
+
+### **Workflow Management Tables:**
+- **approval_workflows**: Workflow configuration and routing logic
+- **escalation_rules**: Automated escalation triggers and conditions
+- **sla_tracking**: Service level agreement monitoring and compliance
+
+### **Decision Support Tables:**
+- **decision_analytics**: Historical decision analysis and outcome tracking
+- **approval_patterns**: Pattern recognition data for consistency analysis
+- **recommendation_engine**: AI-powered recommendation tracking and learning
+
+### **Investigation Evidence Tables:**
+- **investigation_evidence**: Evidence collection and documentation
+- **interview_records**: Stakeholder interview documentation
+- **technical_analysis**: Equipment and technical evaluation results
+
+### **Audit & Compliance Tables:**
+- **audit_logs**: Comprehensive approval action logging with decision justification
+- **hash_chains**: Tamper-proof integrity verification for approval decisions
+- **compliance_reports**: Regulatory compliance documentation and reporting
+
+---
+
+## **INTER-MODULE DEPENDENCIES & SYSTEM INTERACTIONS**
+
+### **Upstream Dependencies:**
+- **Module 1 (Authentication)**: CEO/SYSTEM_ADMIN authority validation, user role management
+- **Module 2 (Infrastructure)**: Station context for approval decisions
+- **Module 3 (Operations)**: Variance generation triggering approval workflows
+- **Module 4 (Pricing)**: Price change approvals requiring CEO authorization
+
+### **Downstream Effects:**
+
+1. **Reporting Module**: Approval decisions generate compliance reports and audit documentation
+2. **Notification Module**: Approval workflows trigger stakeholder notifications and escalation alerts
+3. **Audit & Compliance Module**: All approval decisions contribute to regulatory compliance and audit trails
+4. **Analytics Module**: Approval patterns provide data for operational improvement and fraud detection
+5. **Training Module**: Investigation findings identify training needs and process improvements
+
+### **Critical Business Rules Enforced:**
+
+1. **Authority Matrix**: Strict enforcement of approval authority based on user roles and decision significance
+2. **Investigation Triggers**: Automatic investigation initiation for rejected approvals and suspicious patterns
+3. **SLA Compliance**: Service level agreement enforcement with automatic escalation for overdue decisions
+4. **CEO Override Authority**: Complete decision override capability with enhanced audit trail requirements
+5. **Pattern Recognition**: Systematic issue identification through variance pattern analysis
+6. **Quality Assurance**: Investigation quality validation with peer review and supervisor oversight
+
+### **Data Flow Architecture:**
+
+```
+Approval Workflow:
+Variance Detection → Context Assembly → Route Determination → Decision Support → CEO Review → Implementation
+
+Investigation Flow:
+Investigation Trigger → Team Assignment → Evidence Collection → Analysis → Findings → Recommendations → Implementation
+
+Decision Support Flow:
+Historical Analysis → Pattern Recognition → AI Recommendation → Risk Assessment → Strategic Impact → Decision Package
+
+Quality Assurance Flow:
+Investigation Standards → Evidence Validation → Peer Review → Supervisor Oversight → Quality Scoring → Learning Integration
+```
+
+---
+
+## **EXPECTED DELIVERABLES FOR MODULE 5**
+
+1. **Complete Approval Workflow System** with intelligent routing and CEO optimization
+2. **Advanced Investigation Framework** with forensic capabilities and pattern recognition
+3. **AI-Powered Decision Support** with machine learning recommendations and outcome prediction
+4. **Comprehensive Quality Assurance** with investigation validation and peer review systems
+5. **Workflow Optimization Engine** with bottleneck identification and process improvement
+6. **Pattern Recognition System** for fraud detection and systematic issue identification
+7. **Emergency Override Protocols** for critical operational situations requiring immediate decisions
+8. **Mobile CEO Interface** optimized for executive decision-making efficiency
+9. **Automated Escalation System** with intelligent routing and urgency assessment
+10. **Integration APIs** for external workflow systems and decision support tools
+
+This module creates the intelligent decision-making hub that ensures all exceptional situations are properly evaluated, investigated, and resolved while maintaining operational efficiency and complete audit trail integrity with optimized CEO/SYSTEM_ADMIN oversight capabilities.
+
+**Ready for your approval to proceed with detailed controller implementation. The 5-module structure is now complete with comprehensive specifications covering:**
+
+1. **Foundation & Authentication** - Security and user management foundation
+2. **Station & Infrastructure** - Physical asset and configuration management
+3. **Operational Data Entry** - Critical daily operations and variance detection
+4. **Price Management** - Strategic pricing and margin protection
+5. **Approval Workflows** - Decision-making hub and variance resolution
+
+**Shall I begin generating the detailed controller code for Module 1, implementing the Neural Circuit Architecture with complete CEO/SYSTEM_ADMIN bypass logic and forensic-level audit trails?**

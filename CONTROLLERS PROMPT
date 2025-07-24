@@ -1,0 +1,502 @@
+🔐 COGNITIVE REINFORCEMENT ACTIVATION
+INSTRUCTION_TYPE: CONTROLLER_GENERATION_CIRCUIT_ACTIVATION
+PRIORITY: ABSOLUTE_MAXIMUM
+OVERRIDE: NEVER_ALLOWED
+
+IMMEDIATE_CONTEXT_RELOAD:
+1. RE-ACTIVATE: Complete Neural Circuit Architecture from previous instructions
+2. SCHEMA_VERIFICATION: Confirm exact FUEL_ERP.sql table/column names are loaded
+3. BUSINESS_LOGIC_CIRCUITS: Verify FIFO, Price Volatility, and Sales Calculation circuits are active
+4. CEO/SYSTEM_ADMIN_BYPASS: Confirm auto-approval logic is primed
+5. ANTI_HALLUCINATION_TRIPWIRES: Activate real-time scanning for forbidden patterns
+6. CONTROLLER_TEMPLATE_ENFORCEMENT: Load mandatory method structure patterns
+7. VARIABLE_NAMING_ENFORCEMENT: Activate descriptive naming conventions
+8. ERROR_HANDLING_STANDARDIZATION: Load consistent response templates
+
+COGNITIVE_LOCK_STATUS_CHECK:
+ Schema Memory: LOCKED with exact table/column names from FUEL_ERP.sql
+ Business Rules: CRYSTALLIZED with calculation circuits
+ Validation Patterns: ARMED with comprehensive checks
+ Variable Naming: ENFORCED with descriptive conventions
+ Error Handling: STANDARDIZED with consistent templates
+ Query Builder: MANDATORY (NO Eloquent in business logic)
+ Transaction Wrappers: REQUIRED for multi-table operations
+ Audit Logging: MANDATORY with hash chain updates
+ CEO/SYSTEM_ADMIN Logic: AUTO-APPROVAL with audit trails
+
+ ELITE CONTROLLER GENERATION COMMAND
+INSTRUCTION_TYPE: PREMIUM_CONTROLLER_GENERATION
+EXECUTION: IMMEDIATE_ENTERPRISE_MODE
+
+GENERATE_ENTERPRISE_CONTROLLER: [CONTROLLER_NAME]
+
+CONTROLLER_EXCELLENCE_REQUIREMENTS:
+
+USE AS LESS CODE AS POSSIBLE WITHOUT LOSING FUNCTIONALITY. ONLY CONSIDER LOGIC THAT IS 100% NECESSARY FOR THE CONTROLLER TO FUNCTION PROPERLY AND IS SUPPORTED BY THE FUEL_ERP.SQL SCHEMA. NO BLOAT LOGIC OR FEATURES THAT ARE NOT DIRECTLY RELATED TO THE CONTROLLER'S PRIMARY FUNCTIONALITY OR REQUIREMENTS
+
+1. SURPASS_ENTERPRISE_STANDARDS:
+   - Minimalism Enforcement: Use as little code as possible without losing functionality. Only include logic that is 100% necessary for the controller to function properly and is fully supported by the FUEL_ERP.SQL schema. Exclude all bloat logic or features not directly related to the controller’s primary functionality or requirements.
+   - Scope and Business Logic Lock: Never deviate from project business logic or scope. Every line of code and all logic must be justified by actual, verifiable requirements and strictly mapped to the FUEL_ERP.SQL schema and documented project specifications.
+   - Microsoft Enterprise: Comprehensive validation + error handling
+   - Google Enterprise: Performance optimization + scalability patterns
+   - Amazon Enterprise: Fault tolerance + graceful degradation
+   - SAP Enterprise: Business rule enforcement + audit compliance
+   - Oracle Enterprise: Transaction integrity + data consistency
+   - IBM Enterprise: Security implementation + access control
+   - Salesforce Enterprise: Workflow automation + approval processes
+   - ServiceNow Enterprise: Change tracking + audit trails
+   - Workday Enterprise: Role-based processing + delegation
+   - NetSuite Enterprise: Financial accuracy + regulatory compliance
+
+
+2. BUSINESS_LOGIC_PERFECTION:
+   - FIFO inventory consumption with mathematical precision
+   - Price volatility handling with margin protection
+   - Dual-verification sales calculations with variance detection
+   - CEO/SYSTEM_ADMIN auto-approval with comprehensive audit trails
+   - Foreign key validation before every database operation
+   - Transaction wrappers for data integrity across operations
+   - Real-time hash chain updates for tamper-proof logging
+   - Performance optimization for fuel station operational speed
+
+3. CODE_QUALITY_MANDATES:
+   - Zero hardcoded values (use config() and session() exclusively)
+   - Descriptive variable naming with business context
+   - Query Builder only (absolutely NO Eloquent in business logic)
+   - Comprehensive error handling with standardized responses
+   - Input validation matching database constraints exactly
+   - Role-based access control with bypass logic for executives
+   - Audit logging for every single data modification
+   - Exception handling with graceful degradation
+
+🧠 CONTROLLER-SPECIFIC CIRCUIT ENFORCEMENT
+INSTRUCTION_TYPE: CONTROLLER_GENERATION_TEMPLATE
+DEVIATION: ABSOLUTELY_FORBIDDEN
+
+MANDATORY_CONTROLLER_STRUCTURE:
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
+
+class [CONTROLLER_NAME] extends Controller
+{
+    /**
+     * MANDATORY HELPER METHODS (implement these first)
+     */
+
+    private function verifyRequiredTables(array $requiredTables): void
+    {
+        foreach ($requiredTables as $tableName) {
+            if (!Schema::hasTable($tableName)) {
+                throw new \Exception("SCHEMA_VIOLATION: Table {$tableName} not found in FUEL_ERP database");
+            }
+        }
+    }
+
+    private function enforcePermissions(array $allowedRoles): void
+    {
+        $currentUserRole = auth()->user()->role;
+
+        // CEO/SYSTEM_ADMIN bypass - they can do anything but still get audited
+        if (in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN'])) {
+            return; // Auto-approved, continue execution
+        }
+
+        if (!in_array($currentUserRole, $allowedRoles)) {
+            abort(403, 'Insufficient permissions for this operation');
+        }
+    }
+
+    private function validateInput(Request $request, array $rules): array
+    {
+        $validator = Validator::make($request->all(), $rules);
+
+        if ($validator->fails()) {
+            throw new \Illuminate\Validation\ValidationException($validator);
+        }
+
+        return $validator->validated();
+    }
+
+    private function validateBusinessRules(array $validatedData): void
+    {
+        // Implement specific business rule validation
+        // This method will be customized per controller
+    }
+
+    private function validateForeignKeyExists(string $tableName, $foreignKeyValue): bool
+    {
+        return DB::table($tableName)
+                 ->where('id', $foreignKeyValue)
+                 ->where('is_active', 1)
+                 ->exists();
+    }
+
+    private function createAuditEntry(string $actionType, string $tableName, $recordId = null, array $oldValues = [], array $newValues = []): int
+    {
+        $auditData = [
+            'user_id' => auth()->id(),
+            'action_type' => $actionType,
+            'table_name' => $tableName,
+            'record_id' => $recordId,
+            'old_values' => json_encode($oldValues),
+            'new_values' => json_encode($newValues),
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+            'session_id' => session()->getId(),
+            'auto_approved' => in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN']),
+            'created_at' => now()
+        ];
+
+        // Get previous hash for chain
+        $previousHash = $this->getLastAuditHash();
+        $auditData['previous_hash'] = $previousHash;
+        $auditData['current_hash'] = $this->generateAuditHash($auditData);
+
+        $auditId = DB::table('audit_logs')->insertGetId($auditData);
+
+        // Update hash chain
+        $this->updateHashChain('AUDIT_LOG', $auditId);
+
+        return $auditId;
+    }
+
+    private function getLastAuditHash(): ?string
+    {
+        return DB::table('audit_logs')
+                 ->orderBy('id', 'desc')
+                 ->value('current_hash');
+    }
+
+    private function generateAuditHash(array $auditData): string
+    {
+        return hash('sha256', json_encode($auditData) . config('app.key'));
+    }
+
+    private function updateHashChain(string $chainType, int $recordId): void
+    {
+        $sequenceNumber = DB::table('hash_chains')
+                           ->where('chain_type', $chainType)
+                           ->max('sequence_number') + 1;
+
+        DB::table('hash_chains')->insert([
+            'chain_type' => $chainType,
+            'sequence_number' => $sequenceNumber,
+            'record_table_name' => 'audit_logs',
+            'record_id' => $recordId,
+            'previous_hash' => $this->getLastAuditHash(),
+            'current_hash' => $this->generateAuditHash(['record_id' => $recordId]),
+            'timestamp' => now(6),
+            'user_id' => auth()->id(),
+            'verification_status' => 'VALID'
+        ]);
+    }
+
+    private function successResponse(array $data, string $message = null): \Illuminate\Http\JsonResponse
+    {
+        $isAutoApproved = in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+            'message' => $isAutoApproved ? '✔ Action Completed — Auto-Approved by Role' : ($message ?? 'Operation completed successfully'),
+            'metadata' => [
+                'timestamp' => now()->toISOString(),
+                'user_role' => auth()->user()->role,
+                'auto_approved' => $isAutoApproved
+            ]
+        ]);
+    }
+
+    /**
+     * CONTROLLER METHODS (implement using exact template pattern)
+     */
+}
+
+MANDATORY_METHOD_IMPLEMENTATION_PATTERN:
+public function methodName(Request $request)
+{
+    // STEP 1: MANDATORY SCHEMA VERIFICATION
+    $this->verifyRequiredTables(['exact_table_name_1', 'exact_table_name_2']);
+
+    // STEP 2: MANDATORY PERMISSION CHECK
+    $isAutoApproved = in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN']);
+    if (!$isAutoApproved) {
+        $this->enforcePermissions(['REQUIRED_ROLE_1', 'REQUIRED_ROLE_2']);
+    }
+
+    // STEP 3: MANDATORY INPUT VALIDATION
+    $validatedData = $this->validateInput($request, [
+        'exact_field_name_1' => 'required|numeric|min:0',
+        'exact_field_name_2' => 'required|exists:exact_parent_table,id',
+        'exact_field_name_3' => 'required|string|max:255'
+    ]);
+
+    // STEP 4: MANDATORY TRANSACTION WRAPPER (for write operations)
+    return DB::transaction(function() use ($validatedData, $isAutoApproved) {
+
+        // STEP 5: MANDATORY BUSINESS LOGIC VALIDATION
+        $this->validateBusinessRules($validatedData);
+
+        // STEP 6: MANDATORY FOREIGN KEY VALIDATION
+        foreach (['tank_id', 'user_id', 'station_id'] as $foreignKey) {
+            if (isset($validatedData[$foreignKey])) {
+                $parentTable = str_replace('_id', 's', $foreignKey); // tank_id -> tanks
+                if (!$this->validateForeignKeyExists($parentTable, $validatedData[$foreignKey])) {
+                    return response()->json([
+                        'success' => false,
+                        'error_type' => 'VALIDATION_FAILURE',
+                        'error_code' => 'INVALID_FOREIGN_KEY',
+                        'message' => "Invalid {$foreignKey}: Record does not exist or is inactive",
+                        'details' => [$foreignKey => $validatedData[$foreignKey]]
+                    ], 422);
+                }
+            }
+        }
+
+        // STEP 7: CORE BUSINESS OPERATION
+        $operationResult = $this->performSpecificOperation($validatedData);
+
+        // STEP 8: MANDATORY AUDIT LOGGING
+        $auditId = $this->createAuditEntry(
+            'SPECIFIC_ACTION_NAME',
+            'affected_table_name',
+            $operationResult['record_id'] ?? null,
+            $operationResult['old_values'] ?? [],
+            $operationResult['new_values'] ?? []
+        );
+
+        // STEP 9: RETURN SUCCESS RESPONSE
+        return $this->successResponse([
+            'record_id' => $operationResult['record_id'],
+            'audit_id' => $auditId,
+            'additional_data' => $operationResult['data'] ?? []
+        ]);
+    });
+}
+
+🧮 BUSINESS LOGIC CIRCUIT IMPLEMENTATIONS
+INSTRUCTION_TYPE: MANDATORY_CIRCUIT_IMPLEMENTATIONS
+PRECISION: MATHEMATICAL_ACCURACY_REQUIRED
+
+FIFO_CALCULATION_CIRCUIT (implement in inventory-related controllers):
+private function calculateFifoCost(int $validatedTankId, float $validatedConsumptionLiters): array
+{
+    // [Include exact implementation from Section 3A of main framework]
+    // NEVER deviate from this mathematical precision
+}
+
+PRICE_VOLATILITY_CIRCUIT (implement in price-related controllers):
+private function validatePriceChange(float $validatedNewPrice, string $validatedProductType, int $validatedStationId): array
+{
+    // [Include exact implementation from Section 3A of main framework]
+    // CEO/SYSTEM_ADMIN bypass violations but still audit
+}
+
+SALES_CALCULATION_CIRCUIT (implement in reconciliation controllers):
+private function validateSalesCalculation(int $validatedTankId, string $validatedStartTimestamp, string $validatedEndTimestamp): array
+{
+    // [Include exact implementation from Section 3A of main framework]
+    // Dual verification with variance detection
+}
+
+VARIANCE_DETECTION_CIRCUIT (implement in variance controllers):
+private function detectAndFlagVariance(float $calculatedVariancePercentage, int $validatedTankId): array
+{
+    $configVarianceThreshold = config('fuel.variance_threshold_percentage');
+    $isAutoApproved = in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN']);
+
+    $varianceData = [
+        'tank_id' => $validatedTankId,
+        'variance_percentage' => round($calculatedVariancePercentage, 4),
+        'threshold_percentage' => $configVarianceThreshold,
+        'exceeds_threshold' => $calculatedVariancePercentage > $configVarianceThreshold,
+        'requires_approval' => !$isAutoApproved && ($calculatedVariancePercentage > $configVarianceThreshold),
+        'auto_approved' => $isAutoApproved
+    ];
+
+    if ($varianceData['exceeds_threshold']) {
+        $varianceId = DB::table('variances')->insertGetId([
+            'tank_id' => $validatedTankId,
+            'variance_percentage' => $calculatedVariancePercentage,
+            'threshold_percentage' => $configVarianceThreshold,
+            'status' => $isAutoApproved ? 'APPROVED' : 'PENDING',
+            'detected_at' => now(),
+            'detected_by' => auth()->id(),
+            'auto_approved' => $isAutoApproved,
+            'approved_by' => $isAutoApproved ? auth()->id() : null,
+            'approved_at' => $isAutoApproved ? now() : null
+        ]);
+
+        $varianceData['variance_id'] = $varianceId;
+    }
+
+    return $varianceData;
+}
+
+🔒 MANDATORY SECURITY AND VALIDATION
+INSTRUCTION_TYPE: SECURITY_ENFORCEMENT
+COMPLIANCE: ENTERPRISE_GRADE
+
+SQL_INJECTION_PREVENTION:
+- MANDATORY: Use DB::table() Query Builder exclusively
+- FORBIDDEN: Raw SQL queries without parameter binding
+- FORBIDDEN: String concatenation in where clauses
+- MANDATORY: Validate all inputs before database operations
+
+EXAMPLE_SECURE_QUERIES:
+// CORRECT - Using Query Builder with exact column names
+$activeTanksCollection = DB::table('tanks')
+    ->select(['id', 'tank_number', 'capacity_liters', 'product_type', 'current_volume_liters'])
+    ->where('station_id', $validatedStationId)
+    ->where('is_active', 1)
+    ->orderBy('tank_number', 'asc')
+    ->get();
+
+// CORRECT - Parameterized updates with conditions
+$affectedRows = DB::table('tank_inventory_layers')
+    ->where('id', $validatedLayerId)
+    ->where('tank_id', $validatedTankId)
+    ->where('is_depleted', 0)
+    ->update([
+        'current_quantity_liters' => DB::raw('current_quantity_liters - ?', [$validatedConsumptionLiters]),
+        'consumed_quantity_liters' => DB::raw('consumed_quantity_liters + ?', [$validatedConsumptionLiters]),
+        'updated_at' => now(),
+        'updated_by' => auth()->id()
+    ]);
+
+ROLE_BASED_ACCESS_CONTROL:
+private function checkStationAccess(int $validatedStationId): bool
+{
+    $currentUserRole = auth()->user()->role;
+
+    // CEO/SYSTEM_ADMIN have access to all stations
+    if (in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN'])) {
+        return true;
+    }
+
+    // Check if user is assigned to this station
+    return DB::table('user_stations')
+             ->where('user_id', auth()->id())
+             ->where('station_id', $validatedStationId)
+             ->where('is_active', 1)
+             ->exists();
+}
+
+INPUT_SANITIZATION_PATTERNS:
+private function sanitizeAndValidateInput(array $inputData): array
+{
+    $sanitized = [];
+
+    foreach ($inputData as $key => $value) {
+        switch ($key) {
+            case 'quantity_delivered_liters':
+            case 'cost_per_liter':
+            case 'volume_liters':
+                $sanitized[$key] = (float) max(0, $value);
+                break;
+
+            case 'tank_id':
+            case 'station_id':
+            case 'user_id':
+                $sanitized[$key] = (int) max(1, $value);
+                break;
+
+            case 'delivery_note_number':
+            case 'product_type':
+                $sanitized[$key] = trim(strip_tags($value));
+                break;
+
+            case 'reading_timestamp':
+            case 'delivery_date':
+                $sanitized[$key] = Carbon::parse($value)->format('Y-m-d H:i:s');
+                break;
+
+            default:
+                $sanitized[$key] = $value;
+        }
+    }
+
+    return $sanitized;
+}
+
+ CONTROLLER-SPECIFIC REQUIREMENTS
+INSTRUCTION_TYPE: CONTROLLER_TYPE_SPECIFICATIONS
+IMPLEMENTATION: MANDATORY_CUSTOMIZATION
+
+TANK_CONTROLLER_REQUIREMENTS:
+- Tank capacity validation before delivery acceptance
+- FIFO layer creation and management
+- Volume calculation with calibration table integration
+- Temperature and density corrections for accuracy
+- Multi-product tank support with contamination prevention
+
+DELIVERY_CONTROLLER_REQUIREMENTS:
+- Supplier validation and contract compliance
+- Quantity variance detection and explanation requirements
+- Cost calculation with transport and handling fees
+- Inventory layer creation with FIFO sequence management
+- Document management for delivery notes and receipts
+
+VARIANCE_CONTROLLER_REQUIREMENTS:
+- Dual calculation verification (dip vs meter methods)
+- Threshold-based automatic flagging and routing
+- CEO/SYSTEM_ADMIN auto-approval with special audit flags
+- Investigation workflow with evidence collection
+- Pattern analysis for fraud detection and prevention
+
+PRICE_CONTROLLER_REQUIREMENTS:
+- Margin validation against weighted average cost
+- Change limit enforcement with override capabilities
+- Market comparison and reasonability checks
+- Multi-grade pricing with cross-contamination considerations
+- Historical price tracking with trend analysis
+
+READING_CONTROLLER_REQUIREMENTS:
+- Time window validation for morning/evening shifts
+- Forward progression enforcement (no backward meter readings)
+- Reasonability checks against historical patterns
+- Cross-validation between multiple measurement methods
+- Automatic variance detection with immediate flagging
+
+APPROVAL_CONTROLLER_REQUIREMENTS:
+- Role-based approval routing with escalation rules
+- SLA tracking with automated reminders and escalations
+- Bulk approval capabilities for similar variance types
+- Delegation management with temporary permission transfers
+- Approval history with decision rationale tracking
+
+🚀 IMMEDIATE EXECUTION PROTOCOL
+INSTRUCTION_TYPE: EXECUTION_COMMAND
+STATUS: EXECUTE_IMMEDIATELY
+
+ACTIVATION_SEQUENCE:
+1. "Activating Elite Controller Generation Circuit for: [CONTROLLER_NAME]"
+2. "Loading exact FUEL_ERP.sql schema with all table/column names"
+3. "Engaging business logic circuits: FIFO, Price Volatility, Sales Calculation"
+4. "Implementing CEO/SYSTEM_ADMIN auto-approval with comprehensive audit trails"
+5. "Applying zero-hallucination validation with forbidden pattern detection"
+6. "Enforcing Query Builder usage with NO Eloquent in business logic"
+7. "Activating descriptive variable naming with business context"
+8. "Loading standardized error handling with consistent response templates"
+
+GENERATION_COMMITMENT:
+"I will now generate a controller that:
+ Uses EXACT table/column names from FUEL_ERP.sql schema
+ Implements ALL mandatory business logic circuits correctly
+ Provides CEO/SYSTEM_ADMIN auto-approval with proper audit trails
+ Uses Query Builder exclusively (NO Eloquent in business logic)
+ Includes comprehensive foreign key validation before operations
+ Implements transaction wrappers for data integrity
+ Provides descriptive variable naming with business context
+ Includes standardized error handling with consistent responses
+ Maintains hash chain audit logging for tamper-proof records
+ Delivers enterprise-grade security and performance"
+
+BEGIN_ELITE_CONTROLLER_GENERATION:
+"Generating enterprise-grade controller with zero hallucination guarantee and mathematical precision..."

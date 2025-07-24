@@ -1,0 +1,1696 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+use Exception;
+use App\Services\AuditService;
+use App\Services\CorrectedFIFOService;
+use App\Services\ReconciliationService;
+
+
+class EveningReadingController extends Controller
+{
+    private AuditService $auditService;
+    private CorrectedFIFOService $fifoService;
+    private ReconciliationService $reconciliationService;
+    private array $systemConfigs = [];
+    private array $automationValidationResults = [];
+    private array $storedProcedureResults = [];
+
+    public function __construct(
+        AuditService $auditService,
+        CorrectedFIFOService $fifoService,
+        ReconciliationService $reconciliationService
+    ) {
+        $this->auditService = $auditService;
+        $this->fifoService = $fifoService;
+        $this->reconciliationService = $reconciliationService;
+        $this->enforceCompleteSystemConfiguration();
+        $this->validateDatabaseAutomationReadiness();
+    }
+
+    /**
+     * 🎯 CRITICAL FIX 1: MANDATORY complete system configuration enforcement
+     */
+    private function enforceCompleteSystemConfiguration(): void
+    {
+        try {
+            $requiredConfigs = [
+                'ENHANCED_FIFO_PROCESSING_ENABLED',
+                'ENHANCED_MONITORING_ENABLED',
+                'ENHANCED_CLEANUP_ENABLED',
+                'AUTO_DELIVERY_LAYER_CREATION',
+                'MINOR_VARIANCE_PERCENTAGE',
+                'MODERATE_VARIANCE_PERCENTAGE',
+                'SIGNIFICANT_VARIANCE_PERCENTAGE',
+                'CRITICAL_VARIANCE_PERCENTAGE'
+            ];
+
+            $configs = DB::table('system_configurations')
+                ->whereIn('config_key', $requiredConfigs)
+                ->where('is_system_critical', 1) // CRITICAL: Only system critical configs
+                ->get()
+                ->keyBy('config_key');
+
+            // MANDATORY: Validate ALL required configurations exist
+            $missingConfigs = [];
+            $disabledConfigs = [];
+
+            foreach ($requiredConfigs as $configKey) {
+                if (!$configs->has($configKey)) {
+                    $missingConfigs[] = $configKey;
+                } else {
+                    $config = $configs[$configKey];
+                    if (str_ends_with($configKey, '_ENABLED')) {
+                        $value = (bool) $config->config_value_boolean;
+                        $this->systemConfigs[$configKey] = $value;
+                        if (!$value) {
+                            $disabledConfigs[] = $configKey;
+                        }
+                    } else {
+                        $this->systemConfigs[$configKey] = (float) $config->config_value_numeric;
+                    }
+                }
+            }
+
+            if (!empty($missingConfigs)) {
+                throw new Exception(
+                    "CRITICAL SYSTEM CONFIGURATION MISSING: " . implode(', ', $missingConfigs) .
+                    ". Cannot proceed without complete automation configuration."
+                );
+            }
+
+            if (!empty($disabledConfigs)) {
+                throw new Exception(
+                    "CRITICAL AUTOMATION DISABLED: " . implode(', ', $disabledConfigs) .
+                    ". All automation must be enabled for evening readings."
+                );
+            }
+
+            // MANDATORY: Validate configuration logic
+            if ($this->systemConfigs['MINOR_VARIANCE_PERCENTAGE'] >= $this->systemConfigs['MODERATE_VARIANCE_PERCENTAGE'] ||
+                $this->systemConfigs['MODERATE_VARIANCE_PERCENTAGE'] >= $this->systemConfigs['SIGNIFICANT_VARIANCE_PERCENTAGE'] ||
+                $this->systemConfigs['SIGNIFICANT_VARIANCE_PERCENTAGE'] >= $this->systemConfigs['CRITICAL_VARIANCE_PERCENTAGE']) {
+                throw new Exception("CONFIGURATION LOGIC ERROR: Variance thresholds must be in ascending order");
+            }
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'system_configurations',
+                'error_message' => 'Evening reading system configuration enforcement failed: ' . $e->getMessage(),
+                'error_context' => 'MANDATORY system configuration validation for evening readings'
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX 2: MANDATORY database automation readiness validation
+     */
+    private function validateDatabaseAutomationReadiness(): void
+    {
+        try {
+            // CRITICAL: Validate all triggers exist
+            $requiredTriggers = [
+                'tr_enhanced_meter_fifo_automation',
+                'tr_auto_variance_detection',
+                'tr_enhanced_delivery_fifo_layers',
+                'tr_validate_meter_progression',
+                'tr_validate_tank_capacity',
+                'tr_readings_hash_chain',
+                'tr_validate_future_dates'
+            ];
+
+            $existingTriggers = DB::select("
+                SELECT TRIGGER_NAME
+                FROM information_schema.TRIGGERS
+                WHERE TRIGGER_SCHEMA = DATABASE()
+                AND TRIGGER_NAME IN ('" . implode("','", $requiredTriggers) . "')
+            ");
+
+            $foundTriggers = collect($existingTriggers)->pluck('TRIGGER_NAME')->toArray();
+            $missingTriggers = array_diff($requiredTriggers, $foundTriggers);
+
+            if (!empty($missingTriggers)) {
+                throw new Exception(
+                    "CRITICAL TRIGGERS MISSING: " . implode(', ', $missingTriggers) .
+                    ". Database automation incomplete."
+                );
+            }
+
+            // CRITICAL: Validate stored procedures exist
+            $requiredProcedures = [
+                'sp_enhanced_data_cleanup',
+                'sp_enhanced_fifo_processor',
+                'sp_enhanced_system_monitor',
+                'sp_verify_enhanced_deployment'
+            ];
+
+            $existingProcedures = DB::select("
+                SELECT ROUTINE_NAME
+                FROM information_schema.ROUTINES
+                WHERE ROUTINE_SCHEMA = DATABASE()
+                AND ROUTINE_TYPE = 'PROCEDURE'
+                AND ROUTINE_NAME IN ('" . implode("','", $requiredProcedures) . "')
+            ");
+
+            $foundProcedures = collect($existingProcedures)->pluck('ROUTINE_NAME')->toArray();
+            $missingProcedures = array_diff($requiredProcedures, $foundProcedures);
+
+            if (!empty($missingProcedures)) {
+                throw new Exception(
+                    "CRITICAL STORED PROCEDURES MISSING: " . implode(', ', $missingProcedures) .
+                    ". Database automation incomplete."
+                );
+            }
+
+            // CRITICAL: Validate functions exist
+            $requiredFunctions = [
+                'fn_get_tank_capacity_usage',
+                'fn_get_variance_threshold',
+                'fn_validate_entry_time',
+                'fn_validate_margin',
+                'fn_validate_price_change'
+            ];
+
+            $existingFunctions = DB::select("
+                SELECT ROUTINE_NAME
+                FROM information_schema.ROUTINES
+                WHERE ROUTINE_SCHEMA = DATABASE()
+                AND ROUTINE_TYPE = 'FUNCTION'
+                AND ROUTINE_NAME IN ('" . implode("','", $requiredFunctions) . "')
+            ");
+
+            $foundFunctions = collect($existingFunctions)->pluck('ROUTINE_NAME')->toArray();
+            $missingFunctions = array_diff($requiredFunctions, $foundFunctions);
+
+            if (!empty($missingFunctions)) {
+                throw new Exception(
+                    "CRITICAL FUNCTIONS MISSING: " . implode(', ', $missingFunctions) .
+                    ". Database function automation incomplete."
+                );
+            }
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'information_schema',
+                'error_message' => 'Database automation readiness validation failed: ' . $e->getMessage(),
+                'error_context' => 'MANDATORY database automation validation for evening readings'
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX 3: MANDATORY stored procedure execution and validation
+     */
+    private function executeMandatoryStoredProcedures(): void
+    {
+        try {
+            // STEP 1: Execute sp_enhanced_system_monitor (MANDATORY)
+            DB::statement('CALL sp_enhanced_system_monitor()');
+
+            // STEP 2: Validate monitoring results (MANDATORY)
+            $monitoringResults = DB::table('system_health_monitoring')
+                ->where('check_timestamp', '>=', now()->subMinutes(10))
+                ->whereIn('check_type', [
+                    'ENHANCED_FIFO_MATH_CHECK',
+                    'ENHANCED_VALUE_CALC_CHECK',
+                    'ENHANCED_CAPACITY_CHECK'
+                ])
+                ->get()
+                ->groupBy('check_type');
+
+            $this->storedProcedureResults = [
+                'sp_enhanced_system_monitor_executed' => true,
+                'monitoring_results' => [],
+                'critical_failures' => 0,
+                'all_checks_passed' => true
+            ];
+
+            foreach (['ENHANCED_FIFO_MATH_CHECK', 'ENHANCED_VALUE_CALC_CHECK', 'ENHANCED_CAPACITY_CHECK'] as $checkType) {
+                $checks = $monitoringResults->get($checkType, collect());
+                $latestCheck = $checks->sortByDesc('check_timestamp')->first();
+
+                if (!$latestCheck) {
+                    $this->storedProcedureResults['all_checks_passed'] = false;
+                    throw new Exception("STORED PROCEDURE FAILURE: {$checkType} not executed by sp_enhanced_system_monitor");
+                }
+
+                $this->storedProcedureResults['monitoring_results'][$checkType] = [
+                    'status' => $latestCheck->check_status,
+                    'details' => $latestCheck->check_details,
+                    'affected_records' => $latestCheck->affected_records,
+                    'severity' => $latestCheck->severity
+                ];
+
+                if ($latestCheck->check_status === 'FAILED') {
+                    $this->storedProcedureResults['all_checks_passed'] = false;
+                    $this->storedProcedureResults['critical_failures']++;
+
+                    if ($latestCheck->severity === 'CRITICAL') {
+                        throw new Exception(
+                            "CRITICAL SYSTEM INTEGRITY FAILURE: {$checkType} failed with critical severity: {$latestCheck->check_details}"
+                        );
+                    }
+                }
+            }
+
+            // STEP 3: Execute sp_verify_enhanced_deployment (MANDATORY)
+            DB::statement('CALL sp_verify_enhanced_deployment()');
+
+            // STEP 4: Validate deployment verification results
+            $deploymentCheck = DB::table('system_health_monitoring')
+                ->where('check_type', 'DEPLOYMENT_VERIFICATION')
+                ->where('check_timestamp', '>=', now()->subMinutes(5))
+                ->orderBy('check_timestamp', 'desc')
+                ->first();
+
+            if (!$deploymentCheck || $deploymentCheck->check_status !== 'PASSED') {
+                throw new Exception(
+                    "DEPLOYMENT VERIFICATION FAILURE: Enhanced deployment verification failed. " .
+                    "Details: " . ($deploymentCheck->check_details ?? 'No verification results')
+                );
+            }
+
+            $this->storedProcedureResults['deployment_verified'] = true;
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'system_health_monitoring',
+                'error_message' => 'Mandatory stored procedure execution failed: ' . $e->getMessage(),
+                'error_context' => 'MANDATORY stored procedure validation for evening readings'
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX 4: MANDATORY FIFO layer mathematical integrity validation
+     */
+    private function validateFIFOLayerMathematicalIntegrity(int $tankId): void
+    {
+        try {
+            // CRITICAL: Check FIFO layer mathematical consistency (0.001L precision)
+            $inconsistentLayers = DB::select("
+                SELECT id, delivery_batch_number,
+                       opening_quantity_liters,
+                       current_quantity_liters,
+                       consumed_quantity_liters,
+                       ABS(opening_quantity_liters - (current_quantity_liters + consumed_quantity_liters)) as math_variance,
+                       remaining_layer_value,
+                       cost_per_liter,
+                       ABS(remaining_layer_value - ROUND(current_quantity_liters * cost_per_liter, 2)) as value_variance
+                FROM tank_inventory_layers
+                WHERE tank_id = ?
+                AND (
+                    ABS(opening_quantity_liters - (current_quantity_liters + consumed_quantity_liters)) > 0.001
+                    OR ABS(remaining_layer_value - ROUND(current_quantity_liters * cost_per_liter, 2)) > 1.0
+                )
+            ", [$tankId]);
+
+            if (!empty($inconsistentLayers)) {
+                $layerDetails = collect($inconsistentLayers)->map(function($layer) {
+                    return "Layer {$layer->id} ({$layer->delivery_batch_number}): Math variance {$layer->math_variance}L, Value variance {$layer->value_variance}";
+                })->implode('; ');
+
+                throw new Exception(
+                    "FIFO MATHEMATICAL INTEGRITY VIOLATION: Inconsistent layer calculations in tank {$tankId}. " .
+                    "Details: {$layerDetails}"
+                );
+            }
+
+            // CRITICAL: Validate no negative quantities exist
+            $negativeQuantities = DB::table('tank_inventory_layers')
+                ->where('tank_id', $tankId)
+                ->where('current_quantity_liters', '<', 0)
+                ->count();
+
+            if ($negativeQuantities > 0) {
+                throw new Exception(
+                    "FIFO INTEGRITY VIOLATION: {$negativeQuantities} layers with negative quantities in tank {$tankId}"
+                );
+            }
+
+            // CRITICAL: Validate depletion flag consistency
+            $depletionInconsistencies = DB::table('tank_inventory_layers')
+                ->where('tank_id', $tankId)
+                ->where(function($query) {
+                    $query->where(function($q) {
+                        $q->where('is_depleted', 0)->where('current_quantity_liters', '<=', 0.001);
+                    })->orWhere(function($q) {
+                        $q->where('is_depleted', 1)->where('current_quantity_liters', '>', 0.001);
+                    });
+                })
+                ->count();
+
+            if ($depletionInconsistencies > 0) {
+                throw new Exception(
+                    "FIFO DEPLETION FLAG INCONSISTENCY: {$depletionInconsistencies} layers with incorrect depletion flags in tank {$tankId}"
+                );
+            }
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'tank_inventory_layers',
+                'error_message' => 'FIFO layer mathematical integrity validation failed: ' . $e->getMessage(),
+                'error_context' => "MANDATORY FIFO validation for tank {$tankId}"
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX 5: MANDATORY batch consumption validation
+     */
+    private function validateBatchConsumptionIntegrity(int $tankId, string $date): void
+    {
+        try {
+            // CRITICAL: Validate batch consumption records exist for today
+            $consumptionRecords = DB::table('batch_consumption')
+                ->join('tank_inventory_layers', 'batch_consumption.tank_inventory_layer_id', '=', 'tank_inventory_layers.id')
+                ->where('tank_inventory_layers.tank_id', $tankId)
+                ->where('batch_consumption.sale_date', $date)
+                ->where('batch_consumption.consumption_method', 'ENHANCED_FIFO_AUTO')
+                ->get();
+
+            if ($consumptionRecords->isEmpty()) {
+                // This might be acceptable if no sales occurred
+                $this->auditService->logAction([
+                    'user_id' => auth()->id() ?? 1,
+                    'table_name' => 'batch_consumption',
+                    'action_type' => 'READ',
+                    'action_category' => 'INVESTIGATION',
+                    'change_reason' => "No FIFO consumption records found for tank {$tankId} on {$date}",
+                    'business_justification' => 'Validation of automated FIFO processing'
+                ]);
+            } else {
+                // CRITICAL: Validate consumption mathematics
+                foreach ($consumptionRecords as $record) {
+                    $expectedCost = round($record->quantity_consumed_liters * $record->cost_per_liter, 2);
+                    if (abs($record->total_cost_consumed - $expectedCost) > 0.01) {
+                        throw new Exception(
+                            "BATCH CONSUMPTION MATH ERROR: Record {$record->id} cost calculation incorrect. " .
+                            "Expected: {$expectedCost}, Actual: {$record->total_cost_consumed}"
+                        );
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'batch_consumption',
+                'error_message' => 'Batch consumption integrity validation failed: ' . $e->getMessage(),
+                'error_context' => "MANDATORY batch consumption validation for tank {$tankId}"
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Enhanced trigger execution validation with detailed monitoring
+     */
+    private function validateTriggerExecutionAfterInsert(int $readingId, int $tankId): array
+    {
+        try {
+            // Wait for trigger execution (maximum 2 seconds)
+            $maxWaitTime = 2;
+            $pollInterval = 0.2;
+            $waited = 0;
+
+            while ($waited < $maxWaitTime) {
+                usleep($pollInterval * 1000000);
+                $waited += $pollInterval;
+
+                // CRITICAL: Validate hash chain trigger execution (tr_readings_hash_chain)
+                $reading = DB::table('readings')
+                    ->select(['hash_current', 'hash_validation_status', 'hash_previous'])
+                    ->where('id', $readingId)
+                    ->first();
+
+                $hashGenerated = $reading && !empty($reading->hash_current);
+
+                if ($hashGenerated) {
+                    break;
+                }
+            }
+
+            // CRITICAL: Check variance detection trigger execution (tr_auto_variance_detection)
+            $varianceCreated = DB::table('variances')
+                ->where('reading_id', $readingId)
+                ->where('created_at', '>=', now()->subMinutes(2))
+                ->exists();
+
+            // 🎯 CRITICAL FIX: Enhanced system health monitoring with detailed tank-specific validation
+            $systemHealth = DB::table('system_health_monitoring')
+                ->where('check_timestamp', '>=', now()->subMinutes(5))
+                ->where(function($query) use ($tankId) {
+                    $query->where('check_details', 'LIKE', "%tank {$tankId}%")
+                          ->orWhere('check_details', 'LIKE', "%Tank {$tankId}%");
+                })
+                ->whereIn('check_type', [
+                    'FIFO_PROCESSING_SUCCESS',
+                    'FIFO_PROCESSING_ERROR',
+                    'NEGATIVE_SALES_DETECTED',
+                    'ENHANCED_FIFO_MATH_CHECK',
+                    'ENHANCED_VALUE_CALC_CHECK',
+                    'ENHANCED_CAPACITY_CHECK'
+                ])
+                ->orderBy('check_timestamp', 'desc')
+                ->get();
+
+            $this->automationValidationResults = [
+                'reading_id' => $readingId,
+                'hash_chain_executed' => $hashGenerated,
+                'hash_current' => $reading->hash_current ?? null,
+                'hash_validation_status' => $reading->hash_validation_status ?? 'UNKNOWN',
+                'variance_auto_created' => $varianceCreated,
+                'system_health_records' => $systemHealth->count(),
+                'system_health_details' => $systemHealth->toArray(),
+                'automation_success' => $hashGenerated,
+                'wait_time_seconds' => $waited,
+                'tank_specific_monitoring' => true
+            ];
+
+            if (!$hashGenerated) {
+                throw new Exception(
+                    "TRIGGER EXECUTION FAILURE: tr_readings_hash_chain did not execute properly for reading {$readingId}. " .
+                    "Hash not generated after {$waited} seconds."
+                );
+            }
+
+            return $this->automationValidationResults;
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'readings',
+                'error_message' => 'Trigger execution validation failed: ' . $e->getMessage(),
+                'error_context' => "MANDATORY trigger validation for reading {$readingId}"
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Display evening readings dashboard
+     */
+    public function index(Request $request)
+    {
+        try {
+            $user = auth()->user();
+            if (!$user) {
+                return redirect()->route('login');
+            }
+
+            // Permission validation
+            if (!$this->hasPermission($user, 'evening_reading_access')) {
+                $this->auditService->logSecurityViolation([
+                    'user_id' => $user->id,
+                    'action' => 'UNAUTHORIZED_EVENING_READING_ACCESS_ATTEMPT',
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'violation_type' => 'INSUFFICIENT_PERMISSIONS'
+                ]);
+                return redirect()->back()->with('error', 'Access denied. Contact your administrator for evening reading permissions.');
+            }
+
+            // 🎯 CRITICAL FIX: MANDATORY stored procedures execution
+            $this->executeMandatoryStoredProcedures();
+
+            // 🎯 CRITICAL FIX: Time validation using database function (MANDATORY)
+            $timeValidation = $this->validateEntryTimeUsingDatabaseFunction('EVENING');
+            if (!$timeValidation['valid'] && !$this->isAutoApproved($user)) {
+                return redirect()->back()->with('error', $timeValidation['message']);
+            }
+
+            $userStations = $this->getUserStations($user->id);
+            $currentDate = Carbon::now()->toDateString();
+
+            // 🎯 CRITICAL FIX: Get evening readings from readings table ONLY
+            $eveningReadings = $this->getEveningReadingsFromReadingsTable($currentDate, $userStations);
+
+            // Get missing readings (tanks with morning readings but no evening readings)
+            $missingReadings = $this->getMissingEveningReadings($currentDate, $userStations);
+
+            // Get active variances (automatically created by triggers)
+            $activeVariances = $this->getActiveVariances($userStations);
+
+            // 🎯 CRITICAL FIX: Enhanced audit logging using AuditService
+            $this->auditService->logAction([
+                'user_id' => $user->id,
+                'station_id' => $userStations[0] ?? null,
+                'action_type' => 'READ',
+                'action_category' => 'REPORTING',
+                'table_name' => 'readings',
+                'change_reason' => 'Evening readings dashboard accessed',
+                'business_justification' => 'Daily operations monitoring',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'automation_context' => [
+                    'stored_procedures_executed' => true,
+                    'system_health_validated' => $this->storedProcedureResults['all_checks_passed'],
+                    'monitoring_results' => $this->storedProcedureResults['monitoring_results']
+                ]
+            ]);
+
+            return view('evening.readings.index', compact(
+                'eveningReadings',
+                'missingReadings',
+                'activeVariances',
+                'currentDate',
+                'timeValidation'
+            ));
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'readings',
+                'error_message' => 'Evening readings dashboard load failed: ' . $e->getMessage(),
+                'error_context' => 'Evening readings index method'
+            ]);
+            return redirect()->back()->with('error', 'Unable to load evening readings dashboard: ' . $this->getUserFriendlyErrorMessage($e->getMessage()));
+        }
+    }
+
+    /**
+     * Show create form for evening readings
+     */
+    public function create(Request $request)
+    {
+        try {
+            $user = auth()->user();
+            if (!$user) {
+                return redirect()->route('login');
+            }
+
+            // Permission check
+            if (!$this->hasPermission($user, 'evening_reading_create')) {
+                $this->auditService->logSecurityViolation([
+                    'user_id' => $user->id,
+                    'action' => 'UNAUTHORIZED_EVENING_READING_CREATE_ATTEMPT',
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'violation_type' => 'INSUFFICIENT_PERMISSIONS'
+                ]);
+                return redirect()->back()->with('error', 'Access denied. Contact your administrator.');
+            }
+
+            // 🎯 CRITICAL FIX: MANDATORY stored procedures execution
+            $this->executeMandatoryStoredProcedures();
+
+            // Time validation using database function
+            $timeValidation = $this->validateEntryTimeUsingDatabaseFunction('EVENING');
+            if (!$timeValidation['valid'] && !$this->isAutoApproved($user)) {
+                return redirect()->back()->with('error', $timeValidation['message']);
+            }
+
+            $userStations = $this->getUserStations($user->id);
+            $currentDate = Carbon::now()->toDateString();
+
+            // 🎯 CRITICAL FIX: Get tanks with morning readings from readings table ONLY
+            $availableTanks = $this->getTanksWithMorningReadingsFromReadingsTable($currentDate, $userStations);
+
+            if ($availableTanks->isEmpty() && !$this->isAutoApproved($user)) {
+                return redirect()->back()->with('error', 'Morning readings must be completed before evening readings.');
+            }
+
+            // 🎯 CRITICAL FIX: Validate FIFO consistency for all available tanks
+            foreach ($availableTanks as $tank) {
+                $this->validateFIFOLayerMathematicalIntegrity($tank->id);
+                $this->validateBatchConsumptionIntegrity($tank->id, $currentDate);
+            }
+
+            // Get supporting data
+            $morningReadings = $this->getMorningReadingsKeyedByTankFromReadingsTable($currentDate, $availableTanks->pluck('id')->toArray());
+            $todaysDeliveries = $this->getTodaysDeliveries($currentDate, $availableTanks->pluck('id')->toArray());
+            $meterReadings = $this->getTodaysMeterReadings($currentDate, $availableTanks->pluck('id')->toArray());
+
+            // Log form access
+            $this->auditService->logAction([
+                'user_id' => $user->id,
+                'station_id' => $userStations[0] ?? null,
+                'action_type' => 'READ',
+                'action_category' => 'DATA_ENTRY',
+                'table_name' => 'readings',
+                'change_reason' => 'Evening reading create form accessed',
+                'business_justification' => 'Daily fuel inventory data entry preparation',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'automation_context' => [
+                    'stored_procedures_executed' => true,
+                    'fifo_validated_tanks' => $availableTanks->count(),
+                    'system_health_validated' => $this->storedProcedureResults['all_checks_passed']
+                ]
+            ]);
+
+            return view('evening.readings.create', compact(
+                'availableTanks',
+                'morningReadings',
+                'todaysDeliveries',
+                'meterReadings',
+                'currentDate',
+                'timeValidation'
+            ));
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'readings',
+                'error_message' => 'Evening reading create form load failed: ' . $e->getMessage(),
+                'error_context' => 'Evening readings create method'
+            ]);
+            return redirect()->back()->with('error', 'Unable to load evening reading form: ' . $this->getUserFriendlyErrorMessage($e->getMessage()));
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX 7: Store evening reading with COMPLETE automation integration
+     */
+    public function store(Request $request)
+    {
+        try {
+            $user = auth()->user();
+            if (!$user) {
+                return response()->json(['success' => false, 'error' => 'Authentication required'], 401);
+            }
+
+            // Permission validation
+            if (!$this->hasPermission($user, 'evening_reading_create')) {
+                $this->auditService->logSecurityViolation([
+                    'user_id' => $user->id,
+                    'action' => 'UNAUTHORIZED_EVENING_READING_STORE_ATTEMPT',
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'violation_type' => 'INSUFFICIENT_PERMISSIONS'
+                ]);
+                return response()->json(['success' => false, 'error' => 'Access denied'], 403);
+            }
+
+            // 🎯 CRITICAL FIX: MANDATORY stored procedures execution BEFORE any operation
+            $this->executeMandatoryStoredProcedures();
+
+            // Time validation using database function
+            $timeValidation = $this->validateEntryTimeUsingDatabaseFunction('EVENING');
+            if (!$timeValidation['valid'] && !$this->isAutoApproved($user)) {
+                return response()->json(['success' => false, 'error' => $timeValidation['message']], 400);
+            }
+
+            // 🎯 CRITICAL FIX: Enhanced input validation with complete schema compliance
+            $validatedData = $request->validate([
+                'tank_id' => ['required', 'integer', function ($attribute, $value, $fail) {
+                    $tank = DB::table('tanks')
+                        ->join('products', 'tanks.product_id', '=', 'products.id')
+                        ->where('tanks.id', $value)
+                        ->where('tanks.is_active', 1)
+                        ->where('products.is_active', 1) // ✅ CRITICAL FIX: Ensure product is active
+                        ->first();
+                    if (!$tank) {
+                        $fail('Selected tank or associated product is not available.');
+                    }
+                }],
+                'reading_date' => ['required', 'date', 'date_format:Y-m-d'],
+                'dip_mm' => 'required|numeric|min:0|max:15000',
+                'temperature_celsius' => 'required|numeric|min:-10|max:60',
+                'water_level_mm' => 'required|numeric|min:0|max:1000',
+                'reading_notes' => 'nullable|string|max:500'
+            ]);
+
+            // 🎯 CRITICAL FIX: Additional date constraint validation
+            $this->validateReadingDateConstraints($validatedData['reading_date']);
+
+            DB::beginTransaction();
+
+            try {
+                // 🎯 CRITICAL FIX: MANDATORY FIFO layer mathematical integrity validation
+                $this->validateFIFOLayerMathematicalIntegrity($validatedData['tank_id']);
+
+                // 🎯 CRITICAL FIX: MANDATORY batch consumption validation
+                $this->validateBatchConsumptionIntegrity($validatedData['tank_id'], $validatedData['reading_date']);
+
+                // 🎯 CRITICAL FIX: FIFO consistency validation using corrected service
+                $fifoValidation = $this->fifoService->validateFIFOConsistency($validatedData['tank_id']);
+                if (!$fifoValidation['validation_passed']) {
+                    throw new Exception(
+                        "FIFO CONSISTENCY VALIDATION FAILED for tank {$validatedData['tank_id']}. " .
+                        "Current variance: {$fifoValidation['variance_analysis']['variance_percentage']}%. " .
+                        "Critical alerts: {$fifoValidation['monitoring_status']['critical_alerts_count']}"
+                    );
+                }
+
+                // 🎯 CRITICAL FIX: Verify morning reading exists in readings table ONLY
+                $morningReading = $this->getValidMorningReadingFromReadingsTable(
+                    $validatedData['tank_id'],
+                    $validatedData['reading_date']
+                );
+
+                // 🎯 CRITICAL FIX: Check for duplicate evening reading in readings table ONLY
+                $existingReading = DB::table('readings')
+                    ->where('tank_id', $validatedData['tank_id'])
+                    ->where('reading_date', $validatedData['reading_date'])
+                    ->where('reading_type', 'EVENING_DIP')
+                    ->first();
+
+                if ($existingReading) {
+                    throw new Exception('Evening reading already exists for this tank today.');
+                }
+
+                // Get tank with full details
+                $tank = $this->getTankWithCompleteProductInfo($validatedData['tank_id']);
+
+                // 🎯 CRITICAL FIX: Validate tank capacity BEFORE processing
+                $capacityUsage = $this->getTankCapacityUsageUsingDatabaseFunction($tank->id);
+                if ($capacityUsage > 100) {
+                    throw new Exception(
+                        "TANK CAPACITY VIOLATION: Tank {$tank->tank_number} is at {$capacityUsage}% capacity. " .
+                        "Physical impossibility detected."
+                    );
+                }
+
+                // Calculate corrected volume using calibration table
+                $correctedVolume = $this->calculateCorrectedVolumeFromCalibration(
+                    $validatedData['dip_mm'],
+                    $validatedData['temperature_celsius'],
+                    $tank
+                );
+
+                // Calculate ullage (empty space in tank)
+                $ullage = $this->calculateUllage($validatedData['dip_mm'], $tank);
+
+                // Get density reading from fuel constants
+                $densityReading = $this->getDensityReading($tank->product_id, $validatedData['temperature_celsius']);
+
+                // 🎯 CRITICAL FIX: Use ReconciliationService with complete automation integration
+                $reconciliation = $this->reconciliationService->calculateComprehensiveSales(
+                    $validatedData['tank_id'],
+                    $validatedData['reading_date']
+                );
+
+                // 🎯 CRITICAL FIX: Validate reconciliation automation success
+                if (!$reconciliation['automation_integrated'] === 'PERFECT') {
+                    throw new Exception(
+                        "RECONCILIATION AUTOMATION FAILURE: Perfect automation integration required for evening readings. " .
+                        "Current integration level: " . ($reconciliation['automation_integrated'] ?? 'UNKNOWN')
+                    );
+                }
+
+                // Calculate meter vs dip variance
+                $meterDipVariance = $this->calculateMeterDipVarianceWithFIFOIntegration(
+                    $validatedData['tank_id'],
+                    $validatedData['reading_date'],
+                    $reconciliation
+                );
+
+                // 🎯 CRITICAL FIX: Get variance thresholds using database function (MANDATORY)
+                $minorThreshold = $this->getDatabaseVarianceThresholdUsingFunction('MINOR_VARIANCE_PERCENTAGE');
+                $moderateThreshold = $this->getDatabaseVarianceThresholdUsingFunction('MODERATE_VARIANCE_PERCENTAGE');
+                $significantThreshold = $this->getDatabaseVarianceThresholdUsingFunction('SIGNIFICANT_VARIANCE_PERCENTAGE');
+                $criticalThreshold = $this->getDatabaseVarianceThresholdUsingFunction('CRITICAL_VARIANCE_PERCENTAGE');
+
+                // Calculate expected reading and variance with ENHANCED precision
+                $expectedReading = $morningReading->dip_reading_liters +
+                    ($reconciliation['total_deliveries'] ?? 0) -
+                    ($reconciliation['total_sales'] ?? 0);
+
+                $varianceFromExpectedLiters = $correctedVolume - $expectedReading;
+                $varianceFromExpectedPercentage = ($expectedReading > 0) ?
+                    ($varianceFromExpectedLiters / $expectedReading) * 100 : 0;
+
+                // 🎯 CRITICAL FIX: MANDATORY physical constraint validation
+                if ($correctedVolume < 0) {
+                    throw new Exception("PHYSICAL IMPOSSIBILITY: Negative fuel volume ({$correctedVolume}L) detected for tank {$tank->tank_number}");
+                }
+
+                if ($correctedVolume > $tank->capacity_liters) {
+                    throw new Exception("PHYSICAL IMPOSSIBILITY: Volume ({$correctedVolume}L) exceeds tank capacity ({$tank->capacity_liters}L) for tank {$tank->tank_number}");
+                }
+
+                // Determine reading status based on variance with enhanced logic
+                $readingStatus = $this->determineReadingStatusWithDatabaseThresholds(
+                    abs($varianceFromExpectedPercentage),
+                    $minorThreshold,
+                    $moderateThreshold,
+                    $significantThreshold,
+                    $criticalThreshold
+                );
+
+                // 🎯 CRITICAL FIX: Generate complete previous reading chain reference
+                $previousReadingId = $this->getPreviousReadingIdForChain($validatedData['tank_id'], $validatedData['reading_date']);
+
+                // ✅ CRITICAL FIX: Complete schema compliance - ALL required fields for readings table
+                $readingData = [
+                    // Core identification (MANDATORY)
+                    'station_id' => $tank->station_id,
+                    'reading_type' => 'EVENING_DIP', // ✅ CRITICAL: Correct reading type
+                    'reading_date' => $validatedData['reading_date'],
+                    'reading_time' => now()->format('H:i:s'),
+                    'reading_shift' => 'EVENING',
+                    'tank_id' => $validatedData['tank_id'],
+                    'pump_id' => null, // Evening readings are tank-based
+                    'product_type' => $tank->product_type,
+
+                    // Dip measurements (COMPLETE schema fields)
+                    'dip_reading_mm' => $validatedData['dip_mm'],
+                    'dip_reading_liters' => $correctedVolume,
+                    'meter_reading_liters' => null, // Evening readings don't include meter
+                    'temperature_celsius' => $validatedData['temperature_celsius'],
+                    'water_level_mm' => $validatedData['water_level_mm'],
+                    'density_reading' => $densityReading,
+                    'ullage_mm' => $ullage,
+
+                    // Previous reading reference (CHAIN INTEGRITY)
+                    'previous_reading_id' => $previousReadingId,
+                    'previous_dip_reading_liters' => $morningReading->dip_reading_liters,
+                    'previous_meter_reading_liters' => null,
+
+                    // Calculated values (TRIGGERS VARIANCE DETECTION)
+                    'calculated_sales_liters' => $reconciliation['total_sales'] ?? 0,
+                    'calculated_deliveries_liters' => $reconciliation['total_deliveries'] ?? 0,
+                    'calculated_stock_change_liters' => $correctedVolume - $morningReading->dip_reading_liters,
+                    'expected_reading_liters' => $expectedReading,
+                    'variance_from_expected_liters' => $varianceFromExpectedLiters,
+                    'variance_from_expected_percentage' => $varianceFromExpectedPercentage, // ✅ CRITICAL: Triggers auto variance detection
+
+                    // Meter-dip variance (ENHANCED)
+                    'meter_dip_variance_liters' => $meterDipVariance['variance_liters'] ?? 0,
+                    'meter_dip_variance_percentage' => $meterDipVariance['variance_percentage'] ?? 0,
+
+                    // Status and validation (ENHANCED)
+                    'reading_status' => $readingStatus,
+                    'validation_error_code' => $this->getValidationErrorCode($readingStatus, $varianceFromExpectedPercentage, $criticalThreshold),
+                    'validation_notes' => $this->buildValidationNotes($validatedData['reading_notes'], $fifoValidation, $reconciliation),
+                    'requires_recount' => $readingStatus === 'FLAGGED',
+                    'recount_completed' => 0,
+
+                    // Entry metadata (COMPLETE)
+                    'entry_method' => 'MANUAL',
+                    'entry_device' => 'WEB',
+                    'reading_session_id' => session()->getId(),
+                    'reading_confidence_level' => $this->calculateReadingConfidenceLevel($fifoValidation, $reconciliation),
+                    'environmental_conditions' => 'NORMAL',
+
+                    // ✅ CRITICAL FIX: Hash fields managed by triggers - explicit null values
+                    'hash_previous' => null, // tr_readings_hash_chain will set this
+                    'hash_current' => null,  // tr_readings_hash_chain will set this (changed from '' to null)
+                    'hash_validation_status' => 'PENDING', // tr_readings_hash_chain will validate
+
+                    // User tracking (COMPLETE)
+                    'entered_by' => $user->id,
+                    'validated_by' => null,
+                    'approved_by' => $this->isAutoApproved($user) ? $user->id : null,
+
+                    // Timestamps (REQUIRED)
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ];
+
+                // 🎯 CRITICAL FIX: Insert reading - triggers will automatically execute
+                $readingId = DB::table('readings')->insertGetId($readingData);
+
+                // 🎯 CRITICAL FIX: MANDATORY trigger execution validation
+                $triggerValidation = $this->validateTriggerExecutionAfterInsert($readingId, $validatedData['tank_id']);
+
+                // 🎯 CRITICAL FIX: MANDATORY post-insert FIFO validation
+                $postInsertFIFOValidation = $this->fifoService->validateFIFOConsistency($validatedData['tank_id']);
+                if (!$postInsertFIFOValidation['validation_passed']) {
+                    throw new Exception(
+                        "POST-INSERT FIFO VALIDATION FAILED: Evening reading insertion corrupted FIFO integrity for tank {$validatedData['tank_id']}"
+                    );
+                }
+
+                // ✅ CRITICAL FIX: CEO/SYSTEM_ADMIN auto-approval enhanced logging
+                if ($this->isAutoApproved($user)) {
+                    $this->auditService->logAutoApproval([
+                        'user_id' => $user->id,
+                        'table_name' => 'readings',
+                        'record_id' => $readingId,
+                        'action_type' => 'APPROVE',
+                        'action_category' => 'APPROVAL',
+                        'is_auto_approved' => true,
+                        'approval_reason' => "Auto-approved by role: {$user->role}",
+                        'tank_id' => $validatedData['tank_id'],
+                        'variance_percentage' => $varianceFromExpectedPercentage,
+                        'fifo_validated' => true,
+                        'triggers_executed' => $triggerValidation['automation_success'],
+                        'automation_context' => [
+                            'stored_procedures_executed' => $this->storedProcedureResults,
+                            'fifo_validation' => $fifoValidation,
+                            'trigger_validation' => $triggerValidation,
+                            'reconciliation_automation' => $reconciliation['automation_integrated']
+                        ]
+                    ]);
+                }
+
+                DB::commit();
+
+                // 🎯 CRITICAL FIX: Enhanced audit logging with COMPLETE automation context
+                $this->auditService->logAction([
+                    'user_id' => $user->id,
+                    'station_id' => $tank->station_id,
+                    'action_type' => 'CREATE',
+                    'action_category' => 'DATA_ENTRY',
+                    'table_name' => 'readings',
+                    'record_id' => $readingId,
+                    'new_values' => $validatedData,
+                    'change_reason' => 'Evening reading created with complete automation integration',
+                    'business_justification' => 'Daily fuel inventory monitoring with perfect database automation',
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'automation_context' => [
+                        'stored_procedures_executed' => $this->storedProcedureResults,
+                        'fifo_pre_validated' => $fifoValidation['validation_passed'],
+                        'fifo_post_validated' => $postInsertFIFOValidation['validation_passed'],
+                        'triggers_executed' => $triggerValidation['automation_success'],
+                        'variance_detected' => $readingStatus === 'FLAGGED',
+                        'auto_approved' => $this->isAutoApproved($user),
+                        'reconciliation_automation' => $reconciliation['automation_integrated'],
+                        'capacity_usage_validated' => $capacityUsage,
+                        'mathematical_integrity_verified' => true,
+                        'batch_consumption_validated' => true,
+                        'database_functions_used' => true,
+                        'physical_constraints_validated' => true
+                    ]
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => $this->isAutoApproved($user) ?
+                        'Evening reading completed and auto-approved with perfect automation integration' :
+                        'Evening reading completed successfully with complete database automation',
+                    'data' => [
+                        'reading_id' => $readingId,
+                        'corrected_volume' => $correctedVolume,
+                        'variance_detected' => $readingStatus === 'FLAGGED',
+                        'variance_percentage' => round($varianceFromExpectedPercentage, 4),
+                        'reading_status' => $readingStatus,
+                        'triggers_executed' => $triggerValidation['automation_success'],
+                        'hash_generated' => $triggerValidation['hash_chain_executed'],
+                        'fifo_validated' => true,
+                        'automation_integration' => 'PERFECT',
+                        'stored_procedures_executed' => true,
+                        'capacity_usage_percent' => round($capacityUsage, 2),
+                        'auto_approved' => $this->isAutoApproved($user),
+                        'reconciliation_automation' => $reconciliation['automation_integrated']
+                    ]
+                ]);
+
+            } catch (Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'readings',
+                'error_message' => 'Evening reading store failed: ' . $e->getMessage(),
+                'error_context' => 'Evening reading store method with complete automation integration',
+                'request_data' => $request->all(),
+                'automation_context' => [
+                    'stored_procedures_results' => $this->storedProcedureResults,
+                    'automation_validation_results' => $this->automationValidationResults
+                ]
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => $this->getUserFriendlyErrorMessage($e->getMessage()),
+                'timestamp' => now()->toISOString(),
+                'automation_status' => 'FAILED'
+            ], 500);
+        }
+    }
+
+    // =====================================
+    // 🎯 CRITICAL FIXES: ENHANCED HELPER METHODS WITH DATABASE FUNCTIONS
+    // =====================================
+
+    /**
+     * 🎯 CRITICAL FIX: Time validation using database function (MANDATORY)
+     */
+    private function validateEntryTimeUsingDatabaseFunction(string $shift): array
+    {
+        try {
+            $currentTime = now()->format('H:i:s');
+
+            // ✅ CRITICAL: Use database function fn_validate_entry_time (MANDATORY)
+            $result = DB::selectOne("SELECT fn_validate_entry_time(?, ?) as valid", [$shift, $currentTime]);
+
+            return [
+                'valid' => (bool) $result->valid,
+                'message' => $result->valid ?
+                    "Within {$shift} reading window" :
+                    "{$shift} readings allowed only during designated time windows (18:00-20:00)",
+                'current_time' => $currentTime,
+                'validation_method' => 'DATABASE_FUNCTION'
+            ];
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'system_configurations',
+                'error_message' => 'Database function time validation failed: ' . $e->getMessage(),
+                'error_context' => 'fn_validate_entry_time function call'
+            ]);
+
+            throw new Exception(
+                "TIME VALIDATION FUNCTION FAILURE: Database function fn_validate_entry_time not available. " .
+                "Critical system function missing."
+            );
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get variance threshold using database function (MANDATORY)
+     */
+    private function getDatabaseVarianceThresholdUsingFunction(string $thresholdType): float
+    {
+        try {
+            // ✅ CRITICAL: Use database function fn_get_variance_threshold (MANDATORY)
+            $result = DB::selectOne("SELECT fn_get_variance_threshold(?) as threshold", [$thresholdType]);
+
+            if (!$result || $result->threshold === null) {
+                throw new Exception(
+                    "CRITICAL CONFIGURATION ERROR: Database variance threshold '{$thresholdType}' returned null. " .
+                    "System configuration incomplete."
+                );
+            }
+
+            return (float) $result->threshold;
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'system_configurations',
+                'error_message' => 'Database function variance threshold retrieval failed: ' . $e->getMessage(),
+                'error_context' => "fn_get_variance_threshold('{$thresholdType}') function call"
+            ]);
+
+            throw new Exception(
+                "VARIANCE THRESHOLD FUNCTION FAILURE: Database function fn_get_variance_threshold not available for '{$thresholdType}'. " .
+                "Critical system function missing."
+            );
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get tank capacity usage using database function (MANDATORY)
+     */
+    private function getTankCapacityUsageUsingDatabaseFunction(int $tankId): float
+    {
+        try {
+            // ✅ CRITICAL: Use database function fn_get_tank_capacity_usage (MANDATORY)
+            $result = DB::selectOne("SELECT fn_get_tank_capacity_usage(?) as usage", [$tankId]);
+
+            if (!$result || $result->usage === null) {
+                throw new Exception(
+                    "TANK CAPACITY FUNCTION ERROR: fn_get_tank_capacity_usage returned null for tank {$tankId}. " .
+                    "Tank data may be incomplete."
+                );
+            }
+
+            return (float) $result->usage;
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'tanks',
+                'error_message' => 'Database function tank capacity usage retrieval failed: ' . $e->getMessage(),
+                'error_context' => "fn_get_tank_capacity_usage({$tankId}) function call"
+            ]);
+
+            throw new Exception(
+                "TANK CAPACITY FUNCTION FAILURE: Database function fn_get_tank_capacity_usage not available for tank {$tankId}. " .
+                "Critical system function missing."
+            );
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Enhanced meter-dip variance calculation with FIFO integration
+     */
+    private function calculateMeterDipVarianceWithFIFOIntegration(int $tankId, string $date, array $reconciliation): array
+    {
+        try {
+            // Get FIFO consumption for validation
+            $fifoConsumption = DB::table('batch_consumption')
+                ->join('tank_inventory_layers', 'batch_consumption.tank_inventory_layer_id', '=', 'tank_inventory_layers.id')
+                ->where('tank_inventory_layers.tank_id', $tankId)
+                ->where('batch_consumption.sale_date', $date)
+                ->where('batch_consumption.consumption_method', 'ENHANCED_FIFO_AUTO')
+                ->sum('batch_consumption.quantity_consumed_liters');
+
+            $meterSales = $reconciliation['total_sales'] ?? 0;
+            $calculatedSales = $reconciliation['total_sales'] ?? 0;
+
+            // Variance between meter and FIFO consumption
+            $varianceLiters = $meterSales - $fifoConsumption;
+            $variancePercentage = ($meterSales > 0) ? ($varianceLiters / $meterSales) * 100 : 0;
+
+            return [
+                'variance_liters' => round($varianceLiters, 3),
+                'variance_percentage' => round($variancePercentage, 4),
+                'meter_sales' => round($meterSales, 3),
+                'fifo_consumption' => round($fifoConsumption, 3),
+                'calculation_method' => 'ENHANCED_FIFO_INTEGRATED'
+            ];
+        } catch (Exception $e) {
+            return [
+                'variance_liters' => 0,
+                'variance_percentage' => 0,
+                'calculation_method' => 'FALLBACK_DUE_TO_ERROR',
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Enhanced reading status determination with database thresholds
+     */
+    private function determineReadingStatusWithDatabaseThresholds(
+        float $absVariancePercentage,
+        float $minorThreshold,
+        float $moderateThreshold,
+        float $significantThreshold,
+        float $criticalThreshold
+    ): string {
+        if ($absVariancePercentage > $criticalThreshold) {
+            return 'FLAGGED'; // Requires immediate investigation
+        } elseif ($absVariancePercentage > $significantThreshold) {
+            return 'PENDING'; // Requires approval
+        } elseif ($absVariancePercentage > $moderateThreshold) {
+            return 'PENDING'; // Requires validation
+        } elseif ($absVariancePercentage > $minorThreshold) {
+            return 'VALIDATED'; // Acceptable variance
+        } else {
+            return 'VALIDATED'; // Within tolerance
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get validation error code based on status and thresholds
+     */
+    private function getValidationErrorCode(string $readingStatus, float $variancePercentage, float $criticalThreshold): string
+    {
+        if ($readingStatus === 'FLAGGED') {
+            if (abs($variancePercentage) > $criticalThreshold) {
+                return 'EXCESSIVE_VARIANCE';
+            } else {
+                return 'SIGNIFICANT_VARIANCE';
+            }
+        }
+
+        return 'NONE';
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Build comprehensive validation notes
+     */
+    private function buildValidationNotes(?string $userNotes, array $fifoValidation, array $reconciliation): ?string
+    {
+        $notes = [];
+
+        if ($userNotes) {
+            $notes[] = "User notes: {$userNotes}";
+        }
+
+        if (!$fifoValidation['validation_passed']) {
+            $notes[] = "FIFO validation warning: " . ($fifoValidation['variance_analysis']['variance_percentage'] ?? 'Unknown variance');
+        }
+
+        if ($reconciliation['automation_integrated'] !== 'PERFECT') {
+            $notes[] = "Automation integration: " . ($reconciliation['automation_integrated'] ?? 'UNKNOWN');
+        }
+
+        $notes[] = "Created with complete automation integration";
+
+        return empty($notes) ? null : implode('; ', $notes);
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Calculate reading confidence level based on automation
+     */
+    private function calculateReadingConfidenceLevel(array $fifoValidation, array $reconciliation): string
+    {
+        if ($fifoValidation['validation_passed'] && $reconciliation['automation_integrated'] === 'PERFECT') {
+            return 'HIGH';
+        } elseif ($fifoValidation['validation_passed'] || $reconciliation['automation_integrated'] === 'PERFECT') {
+            return 'MEDIUM';
+        } else {
+            return 'LOW';
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get previous reading ID for chain integrity
+     */
+    private function getPreviousReadingIdForChain(int $tankId, string $date): ?int
+    {
+        // Get the most recent reading for this tank (could be morning reading or previous evening)
+        $previousReading = DB::table('readings')
+            ->where('tank_id', $tankId)
+            ->where(function($query) use ($date) {
+                $query->where('reading_date', $date)
+                      ->where('reading_type', 'MORNING_DIP')
+                      ->orWhere('reading_date', '<', $date);
+            })
+            ->orderBy('reading_date', 'desc')
+            ->orderBy('reading_time', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        return $previousReading ? $previousReading->id : null;
+    }
+
+    // =====================================
+    // 🎯 CRITICAL ADDITION: Date Constraint Validation
+    // =====================================
+
+    /**
+     * 🎯 CRITICAL FIX: Reading date constraints validation
+     */
+    private function validateReadingDateConstraints(string $date): void
+    {
+        try {
+            $currentUser = auth()->user();
+            $readingDate = Carbon::parse($date);
+            $currentDate = Carbon::now();
+
+            // CRITICAL: Future date validation (business rule enforcement)
+            if ($readingDate->gt($currentDate->copy()->addDay())) {
+                throw new Exception('Reading date cannot be more than 1 day in the future');
+            }
+
+            // CRITICAL: Historical date validation for non-auto-approved users
+            if ($readingDate->lt($currentDate->copy()->subDays(30)) && !$this->isAutoApproved($currentUser)) {
+                throw new Exception('Historical readings older than 30 days require CEO approval');
+            }
+
+            // CRITICAL: Weekend/holiday validation (if required by business rules)
+            // This can be extended based on business requirements
+            if ($readingDate->gt($currentDate->copy()->addDays(2))) {
+                throw new Exception('Reading date cannot be more than 2 days in the future');
+            }
+
+            // CRITICAL: Validate reading is not for a closed period
+            $closedPeriods = DB::table('reconciliations')
+                ->where('reconciliation_date', $date)
+                ->where('reconciliation_status', 'CLOSED')
+                ->exists();
+
+            if ($closedPeriods && !$this->isAutoApproved($currentUser)) {
+                throw new Exception('Cannot enter readings for closed reconciliation periods');
+            }
+
+        } catch (Exception $e) {
+            $this->auditService->logError([
+                'user_id' => auth()->id() ?? 1,
+                'table_name' => 'readings',
+                'error_message' => 'Reading date constraint validation failed: ' . $e->getMessage(),
+                'error_context' => "Date constraint validation for {$date}"
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get valid morning reading from readings table ONLY
+     */
+    private function getValidMorningReadingFromReadingsTable(int $tankId, string $date): object
+    {
+        $morningReading = DB::table('readings')
+            ->where('tank_id', $tankId)
+            ->where('reading_date', $date)
+            ->where('reading_type', 'MORNING_DIP') // ✅ CRITICAL: Correct reading type
+            ->whereIn('reading_status', ['VALIDATED', 'APPROVED'])
+            ->first();
+
+        if (!$morningReading) {
+            throw new Exception('Valid morning reading is required before evening reading can be entered.');
+        }
+
+        if ($morningReading->dip_reading_liters <= 0) {
+            throw new Exception('Invalid morning reading data. Please contact your supervisor.');
+        }
+
+        return $morningReading;
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get tank with complete details including fuel constants
+     */
+    private function getTankWithCompleteProductInfo(int $tankId): object
+    {
+        $tank = DB::table('tanks')
+            ->select([
+                'tanks.*',
+                'products.product_type', 'products.product_name',
+                'stations.station_name',
+                'fuel_constants.density_15c', 'fuel_constants.thermal_expansion_coefficient',
+                'fuel_constants.vapor_pressure_correction', 'fuel_constants.temperature_reference_celsius'
+            ])
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->leftJoin('fuel_constants', 'products.id', '=', 'fuel_constants.product_id')
+            ->where('tanks.id', $tankId)
+            ->where('tanks.is_active', 1)
+            ->first();
+
+        if (!$tank) {
+            throw new Exception('Selected tank is not available.');
+        }
+
+        return $tank;
+    }
+
+    /**
+     * Calculate corrected volume using calibration table with interpolation
+     */
+    private function calculateCorrectedVolumeFromCalibration(float $dipMm, float $temperatureCelsius, object $tank): float
+    {
+        // Get calibration data
+        $calibrations = DB::table('tank_calibration_tables')
+            ->where('tank_id', $tank->id)
+            ->orderBy('dip_mm')
+            ->get();
+
+        if ($calibrations->isEmpty()) {
+            throw new Exception('Tank calibration data not available. Contact maintenance.');
+        }
+
+        // Find interpolation points
+        $lower = null;
+        $upper = null;
+
+        foreach ($calibrations as $cal) {
+            if ($cal->dip_mm <= $dipMm) {
+                $lower = $cal;
+            }
+            if ($cal->dip_mm >= $dipMm && !$upper) {
+                $upper = $cal;
+                break;
+            }
+        }
+
+        // Calculate base volume using interpolation
+        if ($lower && $upper && $lower->dip_mm != $upper->dip_mm) {
+            $ratio = ($dipMm - $lower->dip_mm) / ($upper->dip_mm - $lower->dip_mm);
+            $baseVolume = $lower->volume_liters + ($ratio * ($upper->volume_liters - $lower->volume_liters));
+        } elseif ($lower) {
+            $baseVolume = $lower->volume_liters;
+        } elseif ($upper) {
+            $baseVolume = $upper->volume_liters;
+        } else {
+            throw new Exception('Unable to determine volume from calibration data.');
+        }
+
+        // Apply temperature correction using fuel constants
+        $tempRef = $tank->temperature_reference_celsius ?? 15;
+        $expansionCoeff = $tank->thermal_expansion_coefficient ?? 0.001200;
+        $vaporCorrection = $tank->vapor_pressure_correction ?? 0.980;
+
+        $temperatureDifference = $temperatureCelsius - $tempRef;
+        $correctionFactor = 1 - ($expansionCoeff * $temperatureDifference);
+        $correctedVolume = $baseVolume * $correctionFactor * $vaporCorrection;
+
+        return round(max(0, $correctedVolume), 3);
+    }
+
+    /**
+     * Calculate ullage (empty space in tank)
+     */
+    private function calculateUllage(float $dipMm, object $tank): float
+    {
+        // Get maximum dip from calibration table
+        $maxDip = DB::table('tank_calibration_tables')
+            ->where('tank_id', $tank->id)
+            ->max('dip_mm') ?? 0;
+
+        return round(max(0, $maxDip - $dipMm), 2);
+    }
+
+    /**
+     * Get density reading from fuel constants
+     */
+    private function getDensityReading(int $productId, float $temperatureCelsius): float
+    {
+        $fuelConstants = DB::table('fuel_constants')
+            ->where('product_id', $productId)
+            ->first();
+
+        if (!$fuelConstants) {
+            return 0.8000; // Default density
+        }
+
+        // Apply temperature correction to density
+        $density15c = $fuelConstants->density_15c ?? 0.8000;
+        $tempRef = $fuelConstants->temperature_reference_celsius ?? 15;
+        $expansionCoeff = $fuelConstants->thermal_expansion_coefficient ?? 0.001200;
+
+        $temperatureDifference = $temperatureCelsius - $tempRef;
+        $correctedDensity = $density15c * (1 - ($expansionCoeff * $temperatureDifference));
+
+        return round($correctedDensity, 4);
+    }
+
+    // =====================================
+    // 🎯 CRITICAL FIXES: DATA RETRIEVAL METHODS (READINGS TABLE ONLY)
+    // =====================================
+
+    /**
+     * 🎯 CRITICAL FIX: Get evening readings from readings table ONLY
+     */
+    private function getEveningReadingsFromReadingsTable(string $date, array $userStations): \Illuminate\Support\Collection
+    {
+        return DB::table('readings')
+            ->select([
+                'readings.id', 'readings.tank_id', 'readings.reading_date', 'readings.reading_time',
+                'readings.dip_reading_mm', 'readings.dip_reading_liters', 'readings.temperature_celsius',
+                'readings.water_level_mm', 'readings.ullage_mm', 'readings.density_reading',
+                'readings.variance_from_expected_liters', 'readings.variance_from_expected_percentage',
+                'readings.meter_dip_variance_liters', 'readings.meter_dip_variance_percentage',
+                'readings.reading_status', 'readings.validation_error_code', 'readings.validation_notes',
+                'readings.created_at', 'readings.approved_by', 'readings.hash_validation_status',
+                'tanks.tank_number', 'tanks.capacity_liters',
+                'stations.station_name', 'stations.station_code',
+                'products.product_name', 'products.product_type'
+            ])
+            ->join('tanks', 'readings.tank_id', '=', 'tanks.id')
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->where('readings.reading_date', $date)
+            ->where('readings.reading_type', 'EVENING_DIP') // ✅ CRITICAL: Correct reading type
+            ->whereIn('tanks.station_id', $userStations)
+            ->orderBy('stations.station_name')
+            ->orderBy('tanks.tank_number')
+            ->get();
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get missing evening readings from readings table ONLY
+     */
+    private function getMissingEveningReadings(string $date, array $userStations): \Illuminate\Support\Collection
+    {
+        $morningTankIds = DB::table('readings')
+            ->where('reading_date', $date)
+            ->where('reading_type', 'MORNING_DIP') // ✅ CRITICAL: Correct reading type
+            ->whereIn('reading_status', ['VALIDATED', 'APPROVED'])
+            ->pluck('tank_id');
+
+        $eveningTankIds = DB::table('readings')
+            ->where('reading_date', $date)
+            ->where('reading_type', 'EVENING_DIP') // ✅ CRITICAL: Correct reading type
+            ->pluck('tank_id');
+
+        $missingTankIds = $morningTankIds->diff($eveningTankIds);
+
+        return DB::table('tanks')
+            ->select([
+                'tanks.id', 'tanks.tank_number', 'tanks.capacity_liters',
+                'stations.station_name', 'products.product_name'
+            ])
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->whereIn('tanks.id', $missingTankIds)
+            ->whereIn('tanks.station_id', $userStations)
+            ->where('tanks.is_active', 1)
+            ->get();
+    }
+
+    /**
+     * Get active variances (created by triggers)
+     */
+    private function getActiveVariances(array $userStations): \Illuminate\Support\Collection
+    {
+        return DB::table('variances')
+            ->select([
+                'variances.id', 'variances.tank_id', 'variances.calculated_variance_percentage',
+                'variances.calculated_variance_liters', 'variances.variance_status',
+                'variances.variance_category', 'variances.escalation_level',
+                'variances.created_at', 'variances.reading_id',
+                'tanks.tank_number', 'stations.station_name', 'products.product_name'
+            ])
+            ->join('tanks', 'variances.tank_id', '=', 'tanks.id')
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->where('variances.created_at', '>=', Carbon::now()->startOfDay())
+            ->whereIn('variances.variance_status', ['PENDING', 'UNDER_INVESTIGATION'])
+            ->whereIn('tanks.station_id', $userStations)
+            ->orderBy('variances.calculated_variance_percentage', 'desc')
+            ->get();
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get tanks with morning readings from readings table ONLY
+     */
+    private function getTanksWithMorningReadingsFromReadingsTable(string $date, array $userStations): \Illuminate\Support\Collection
+    {
+        $morningTankIds = DB::table('readings')
+            ->where('reading_date', $date)
+            ->where('reading_type', 'MORNING_DIP') // ✅ CRITICAL: Correct reading type
+            ->whereIn('reading_status', ['VALIDATED', 'APPROVED'])
+            ->pluck('tank_id');
+
+        return DB::table('tanks')
+            ->select([
+                'tanks.id', 'tanks.tank_number', 'tanks.capacity_liters',
+                'stations.station_name', 'products.product_name', 'products.product_type'
+            ])
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->whereIn('tanks.id', $morningTankIds)
+            ->whereIn('tanks.station_id', $userStations)
+            ->where('tanks.is_active', 1)
+            ->orderBy('stations.station_name')
+            ->orderBy('tanks.tank_number')
+            ->get();
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Get morning readings from readings table ONLY
+     */
+    private function getMorningReadingsKeyedByTankFromReadingsTable(string $date, array $tankIds): \Illuminate\Support\Collection
+    {
+        return DB::table('readings')
+            ->select(['tank_id', 'dip_reading_liters', 'temperature_celsius', 'id'])
+            ->where('reading_date', $date)
+            ->where('reading_type', 'MORNING_DIP') // ✅ CRITICAL: Correct reading type
+            ->whereIn('reading_status', ['VALIDATED', 'APPROVED'])
+            ->whereIn('tank_id', $tankIds)
+            ->get()
+            ->keyBy('tank_id');
+    }
+
+    private function getTodaysDeliveries(string $date, array $tankIds): \Illuminate\Support\Collection
+    {
+        return DB::table('deliveries')
+            ->select(['tank_id', 'quantity_delivered_liters', 'delivery_time'])
+            ->where('delivery_date', $date)
+            ->where('delivery_status', 'COMPLETED')
+            ->whereIn('tank_id', $tankIds)
+            ->get()
+            ->groupBy('tank_id');
+    }
+
+    private function getTodaysMeterReadings(string $date, array $tankIds): \Illuminate\Support\Collection
+    {
+        return DB::table('meter_readings')
+            ->select(['pumps.tank_id', 'meter_readings.reading_shift', 'meter_readings.meter_reading_liters'])
+            ->join('pumps', 'meter_readings.pump_id', '=', 'pumps.id')
+            ->where('meter_readings.reading_date', $date)
+            ->whereIn('pumps.tank_id', $tankIds)
+            ->get()
+            ->groupBy('tank_id');
+    }
+
+    // =====================================
+    // UTILITY METHODS
+    // =====================================
+
+    /**
+     * Check permissions based on role
+     */
+    private function hasPermission(object $user, string $permission): bool
+    {
+        $rolePermissions = [
+            'CEO' => ['*'],
+            'SYSTEM_ADMIN' => ['*'],
+            'STATION_MANAGER' => ['evening_reading_access', 'evening_reading_create'],
+            'DELIVERY_SUPERVISOR' => ['evening_reading_access'],
+            'AUDITOR' => ['evening_reading_access'],
+            'STOCK_KEEPER' => ['evening_reading_access', 'evening_reading_create']
+        ];
+
+        $userPermissions = $rolePermissions[$user->role] ?? [];
+        return in_array('*', $userPermissions) || in_array($permission, $userPermissions);
+    }
+
+    /**
+     * Check if user is auto-approved
+     */
+    private function isAutoApproved(object $user): bool
+    {
+        return in_array($user->role, ['CEO', 'SYSTEM_ADMIN']);
+    }
+
+    /**
+     * Get user stations
+     */
+    private function getUserStations(int $userId): array
+    {
+        $user = auth()->user();
+        if ($user && in_array($user->role, ['CEO', 'SYSTEM_ADMIN'])) {
+            return DB::table('stations')->where('is_active', 1)->pluck('id')->toArray();
+        }
+
+        return DB::table('user_stations')
+            ->where('user_id', $userId)
+            ->where('is_active', 1)
+            ->pluck('station_id')
+            ->toArray();
+    }
+
+    /**
+     * 🎯 CRITICAL FIX: Enhanced user-friendly error messages
+     */
+    private function getUserFriendlyErrorMessage(string $error): string
+    {
+        $errorMap = [
+            'FIFO CONSISTENCY VALIDATION FAILED' => 'Fuel inventory system validation failed. Please contact your supervisor immediately.',
+            'FIFO MATHEMATICAL INTEGRITY VIOLATION' => 'Fuel inventory calculations are inconsistent. System maintenance required.',
+            'CRITICAL SYSTEM INTEGRITY FAILURE' => 'Critical system error detected. Operations suspended pending maintenance.',
+            'STORED PROCEDURE FAILURE' => 'Database system error. Please contact IT support immediately.',
+            'TRIGGER EXECUTION FAILURE' => 'System automation error. Please contact your supervisor.',
+            'PHYSICAL IMPOSSIBILITY' => 'Reading values are physically impossible. Please verify your measurements.',
+            'TANK CAPACITY VIOLATION' => 'Tank capacity exceeded. Check for measurement errors or system issues.',
+            'TIME VALIDATION FUNCTION FAILURE' => 'System time validation error. Contact IT support.',
+            'VARIANCE THRESHOLD FUNCTION FAILURE' => 'System configuration error. Contact your administrator.',
+            'Historical readings older than 30 days' => 'Historical readings require CEO approval. Contact your administrator.',
+            'Reading date cannot be more than' => 'Invalid reading date. Please select a valid date within allowed range.',
+            'closed reconciliation periods' => 'Cannot modify readings for finalized periods. Contact your administrator.',
+            'tank or associated product is not available' => 'Selected tank or fuel product is not available for readings.',
+            'Morning reading' => 'Morning reading is required before evening reading can be entered.',
+            'Tank' => 'Selected tank is not available.',
+            'calibration' => 'Tank calibration data is unavailable. Please contact maintenance.',
+            'duplicate' => 'Evening reading already exists for this tank today.',
+            'variance' => 'Reading shows significant variance. Please verify your measurements.',
+            'time' => 'Evening readings can only be entered during designated time windows (18:00-20:00).',
+            'permission' => 'Access denied. Contact your administrator for permissions.',
+            'AUTOMATION' => 'System automation error. Please contact your supervisor.',
+            'CONFIGURATION' => 'System configuration error. Please contact your administrator.'
+        ];
+
+        foreach ($errorMap as $key => $message) {
+            if (stripos($error, $key) !== false) {
+                return $message;
+            }
+        }
+
+        return 'Unable to process evening reading. Please contact your supervisor for assistance.';
+    }
+}

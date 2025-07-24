@@ -1,0 +1,405 @@
+📋 MODULE 1: FOUNDATION & AUTHENTICATION SYSTEM
+MODULE SCOPE & BUSINESS CONTEXT
+This module establishes the security foundation for the entire fuel ERP system, implementing user authentication, role-based access control, comprehensive audit trails, and forensic-level data integrity mechanisms. Every action in the system will flow through this foundation, ensuring complete accountability and tamper-proof operation.
+CONTROLLERS & FUNCTIONALITY BREAKDOWN
+1. AuthController - Authentication Core Engine
+File: app/Http/Controllers/AuthController.php
+Methods & Complete Functionality:
+login(Request $request)
+
+Business Logic: Multi-factor authentication with account lockout protection
+Validation: Email format, password strength, rate limiting
+Process Flow:
+
+Validate credentials against users table with exact column names
+Check account_locked_until timestamp vs current time
+Increment failed_attempts counter on failure (max 3)
+Create session with user_id, user_role, station_assignments
+Log successful/failed attempts to audit_logs with IP tracking
+Generate hash chain entry for authentication event
+
+
+CEO/SYSTEM_ADMIN Special Handling: No lockout restrictions, enhanced logging
+Security Features: Bcrypt verification, IP tracking, device fingerprinting
+Tables Used: users, audit_logs, hash_chains, user_stations
+
+logout(Request $request)
+
+Business Logic: Secure session termination with audit trail
+Process Flow:
+
+Capture session duration and activity statistics
+Log logout event to audit_logs with session metadata
+Clear all session data and invalidate tokens
+Update last_logout_timestamp in users table
+Generate hash chain entry for logout event
+
+
+Audit Requirements: Complete session summary, action count, data accessed
+
+resetPassword(Request $request)
+
+Business Logic: Secure password reset workflow with email verification
+Process Flow:
+
+Validate email exists in users table
+Generate cryptographically secure reset token
+Store token with expiration (15 minutes) in password_resets table
+Send email with reset link using queue system
+Log reset request to audit_logs
+On completion, force password change and clear failed_attempts
+
+
+Security Features: Token expiration, one-time use, old password invalidation
+
+lockAccount($userId)
+
+Business Logic: Immediate account lockout for security breaches
+Process Flow:
+
+Set account_locked_until to 15 minutes from current time
+Terminate all active sessions for user
+Log lockout reason and triggering event
+Send notification email to user and supervisor
+Generate hash chain entry for security event
+
+
+CEO/SYSTEM_ADMIN Immunity: Cannot be locked by system, requires manual override
+
+
+2. UserController - User Lifecycle Management
+File: app/Http/Controllers/UserController.php
+Methods & Complete Functionality:
+index(Request $request)
+
+Business Logic: Filtered user listing with role-based visibility
+Data Flow:
+
+Query users table with exact column names (employee_number, first_name, last_name, role, etc.)
+Apply role-based filtering (STATION_MANAGER sees only same station users)
+Include user_stations relationships for station assignments
+Calculate activity metrics (last_login, actions_count, variance_approvals)
+Paginate results with search/filter capabilities
+
+
+UI Features: Advanced filtering, bulk actions, export capabilities
+Performance: Optimized queries with proper indexing
+
+create(Request $request)
+
+Business Logic: New user creation with auto-generated credentials
+Validation Rules:
+
+email: unique:users,email|email:rfc
+role: in:SYSTEM_ADMIN,CEO,STATION_MANAGER,DELIVERY_SUPERVISOR,AUDITOR
+station_id: exists:stations,id (for STATION_MANAGER role)
+
+
+Process Flow:
+
+Auto-generate employee_number (EMP001, EMP002...)
+Create unique username from first_name + last_name
+Generate temporary password with complexity requirements
+Set role-based permissions (can_approve_variances, can_modify_prices)
+Send welcome email with credentials
+Log user creation to audit_logs with hash chain
+
+
+CEO/SYSTEM_ADMIN Creation: Enhanced privileges, additional security clearance
+
+edit($id, Request $request)
+
+Business Logic: User profile modification with change tracking
+Change Detection:
+
+Capture before/after values for all modified fields
+Validate role changes against business rules
+Update station assignments in user_stations table
+Log all changes to audit_logs with detailed diff
+Generate hash chain entry for profile modification
+
+
+Restricted Fields: Role changes require CEO approval, salary modifications audit
+
+assignStations($id, Request $request)
+
+Business Logic: Station assignment management for multi-location access
+Process Flow:
+
+Validate user role supports multiple stations
+Check station capacity constraints
+Update user_stations table with new assignments
+Revoke access to previous stations if removed
+Update session data if user is currently logged in
+Log assignment changes with effective dates
+
+
+Business Rules: STATION_MANAGER limited to 3 stations max
+
+permissions($id, Request $request)
+
+Business Logic: Granular permission management with approval workflow
+Permission Matrix:
+
+can_approve_variances: CEO/SYSTEM_ADMIN auto-approve, others require justification
+can_modify_prices: High-value permission requiring dual approval
+can_access_audit_logs: Read-only with 24-hour delay for non-admins
+
+
+Process Flow:
+
+Validate permission change authority
+Create approval request if required
+Log permission modification with justification
+Update user record with new permissions
+Notify user of permission changes
+
+
+
+activity($id, Request $request)
+
+Business Logic: Comprehensive user activity analysis and reporting
+Data Sources:
+
+audit_logs table for all user actions
+variance approvals with timing analysis
+login patterns and session durations
+Data entry accuracy statistics
+Failed attempt patterns and security events
+
+
+Analytics Features:
+
+Performance scoring based on accuracy and timeliness
+Anomaly detection for unusual behavior patterns
+Trend analysis for productivity metrics
+
+
+
+
+3. AuditController - Forensic Audit Trail Management
+File: app/Http/Controllers/AuditController.php
+Methods & Complete Functionality:
+index(Request $request)
+
+Business Logic: Comprehensive audit log viewing with advanced filtering
+Filter Capabilities:
+
+Date range with precision to microseconds
+User-based filtering with role hierarchy
+Action type categorization (CREATE, UPDATE, DELETE, LOGIN, APPROVAL)
+Table-specific filtering for data changes
+IP address and location tracking
+
+
+Data Integrity Verification: Real-time hash chain validation during display
+
+verifyIntegrity(Request $request)
+
+Business Logic: Complete audit trail integrity verification
+Verification Process:
+
+Reconstruct hash chain from genesis block
+Verify each hash against stored values
+Detect any breaks or tampering attempts
+Generate integrity report with timestamps
+Alert on any anomalies or corruption
+
+
+Performance: Optimized for large datasets with progressive verification
+
+exportAudit(Request $request)
+
+Business Logic: Forensic-grade audit export for compliance
+Export Features:
+
+Tamper-evident PDF with digital signatures
+CSV format with hash verification
+Date range selection with filters
+Regulatory compliance formatting
+Chain of custody documentation
+
+
+
+
+VIEWS & USER INTERFACE SPECIFICATIONS
+1. auth/login.blade.php - Authentication Interface
+Design Requirements:
+
+Mobile-first responsive design with dark mode support
+Clean, professional layout matching elite UI standards
+Real-time validation feedback with Swal.fire notifications
+Accessibility compliance (WCAG 2.1 AA)
+Progressive enhancement for connectivity issues
+
+Features:
+
+Remember me functionality with secure token storage
+Password strength indicator on reset
+Failed attempt counter display
+IP-based location detection for security
+Multi-language support for international operations
+
+Security Elements:
+
+CSRF protection with token rotation
+Rate limiting visualization
+Account lockout countdown timer
+Security tips and best practices display
+
+2. users/index.blade.php - User Management Dashboard
+Layout Structure:
+
+Advanced DataTable with server-side processing
+Real-time search with debounced input
+Role-based action buttons (edit, activate, assign stations)
+Bulk operations with confirmation dialogs
+Export functionality with progress indicators
+
+Data Display:
+
+User status indicators (active, locked, pending)
+Last activity timestamps with relative time
+Role badges with color coding
+Station assignments with quick links
+Performance metrics visualization
+
+3. users/create.blade.php - User Creation Form
+Form Design:
+
+Multi-step wizard with progress indicator
+Dynamic field validation with real-time feedback
+Role-based form sections (show/hide based on selection)
+Photo upload with cropping functionality
+Station assignment interface for managers
+
+Validation Features:
+
+Email domain validation against whitelist
+Password complexity requirements with visual feedback
+Employee number auto-generation with preview
+Username availability checking
+Phone number format validation
+
+4. users/edit.blade.php - User Profile Management
+Interface Elements:
+
+Tabbed interface (Personal, Security, Permissions, Activity)
+Change tracking with highlighted modifications
+Permission matrix with visual indicators
+Station assignment drag-and-drop interface
+Activity timeline with detailed logging
+
+Security Features:
+
+Change justification requirements for sensitive fields
+Approval workflow integration for role changes
+Password change forcing with complexity validation
+Two-factor authentication setup interface
+
+5. audit/index.blade.php - Audit Trail Viewer
+Advanced Features:
+
+Timeline visualization of audit events
+Advanced filtering with saved filter sets
+Real-time integrity status indicators
+Drill-down capability for detailed investigation
+Export functionality with multiple formats
+
+Data Presentation:
+
+Color-coded action types for quick identification
+User hover cards with quick info
+IP geolocation mapping for login events
+Before/after value comparison for changes
+Hash chain verification status indicators
+
+
+ROUTES DEFINITION
+php// Authentication Routes
+Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
+Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
+Route::get('/password/reset', [AuthController::class, 'showResetForm'])->name('password.request');
+Route::post('/password/reset', [AuthController::class, 'resetPassword'])->name('password.update');
+
+// User Management Routes (Role-Protected)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/users', [UserController::class, 'index'])->name('users.index');
+    Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+    Route::post('/users', [UserController::class, 'store'])->name('users.store');
+    Route::get('/users/{id}/edit', [UserController::class, 'edit'])->name('users.edit');
+    Route::put('/users/{id}', [UserController::class, 'update'])->name('users.update');
+    Route::get('/users/{id}/stations', [UserController::class, 'assignStations'])->name('users.stations');
+    Route::post('/users/{id}/stations', [UserController::class, 'updateStations'])->name('users.update_stations');
+    Route::get('/users/{id}/permissions', [UserController::class, 'permissions'])->name('users.permissions');
+    Route::put('/users/{id}/permissions', [UserController::class, 'updatePermissions'])->name('users.update_permissions');
+});
+
+// Activity Monitoring (CEO/SYSTEM_ADMIN + Self)
+Route::middleware(['auth'])->group(function () {
+    Route::get('/users/{id}/activity', [UserController::class, 'activity'])->name('users.activity');
+});
+
+// Audit Trail Routes (Restricted Access)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,AUDITOR'])->group(function () {
+    Route::get('/audit', [AuditController::class, 'index'])->name('audit.index');
+    Route::post('/audit/verify', [AuditController::class, 'verifyIntegrity'])->name('audit.verify');
+    Route::post('/audit/export', [AuditController::class, 'exportAudit'])->name('audit.export');
+});
+
+DATABASE TABLES UTILIZED
+Primary Tables:
+
+users: Core user information with authentication data
+user_stations: Many-to-many relationship for station assignments
+audit_logs: Comprehensive action logging with forensic capabilities
+hash_chains: Tamper-proof integrity verification system
+sessions: Active session management and tracking
+
+Secondary Tables:
+
+stations: Referenced for user-station assignments
+password_resets: Temporary token storage for password recovery
+notifications: User communication and alert system
+
+
+INTER-MODULE DEPENDENCIES & SYSTEM INTERACTIONS
+Downstream Effects (How This Module Affects Others):
+
+Station Management Module: User-station assignments control data visibility
+Inventory Management Module: User permissions determine approval authorities
+Reporting Module: Audit trails provide data for compliance reports
+Price Management Module: Role validation affects price change permissions
+Variance Approval Module: User hierarchy determines approval workflows
+
+Data Flow Architecture:
+Authentication Flow:
+Login → Session Creation → Role Verification → Station Assignment → Permission Matrix → Module Access
+
+Audit Trail Flow:
+User Action → Validation → Database Update → Audit Log Entry → Hash Chain Update → Integrity Verification
+
+Permission Flow:
+User Request → Role Check → Station Validation → Action Authority → Approval Workflow → Execution
+Critical Business Rules Enforced:
+
+CEO/SYSTEM_ADMIN Bypass Logic: Complete permission override with enhanced audit trails
+Station Isolation: STATION_MANAGER users see only assigned station data
+Approval Hierarchy: Variance approvals follow strict user role hierarchy
+Audit Integrity: Every action generates tamper-proof audit trail
+Session Security: Automatic logout after inactivity, location tracking
+
+
+EXPECTED DELIVERABLES FOR MODULE 1
+
+Complete Authentication System with multi-factor security
+User Management Interface with role-based controls
+Forensic Audit Trail System with integrity verification
+Session Management with security monitoring
+Permission Matrix Engine with dynamic role validation
+Hash Chain Integrity System for tamper detection
+Comprehensive Test Suite with security penetration testing
+Documentation Package with API specifications and user guides
+
+This module forms the unbreakable foundation upon which all other fuel ERP modules will be built, ensuring complete security, accountability, and operational integrity throughout the entire system.

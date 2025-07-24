@@ -1,0 +1,5 @@
+From your schema analysis:
+Morning DIP Reading = Physical tank measurement to determine opening stock
+Evening DIP Reading = Physical tank measurement to determine closing stock
+Evening METER Reading = Cumulative sales volume from pump meters
+FIFO Automation = Triggered by SALES (meter readings), not stock measurements (dip readings)

@@ -1,0 +1,1494 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
+use App\Services\AuditService;
+use Exception;
+
+class EveningReadingController extends Controller
+{
+    private AuditService $auditService;
+
+    public function __construct(AuditService $auditService)
+    {
+        $this->auditService = $auditService;
+    }
+
+    /**
+     * Display evening readings dashboard
+     */
+    public function index(Request $request)
+    {
+        try {
+            // STEP 1: MANDATORY SCHEMA VERIFICATION
+            $this->verifyRequiredTables([
+                'readings', 'tanks', 'stations', 'products',
+                'tank_calibration_tables', 'fuel_constants', 'system_configurations'
+            ]);
+
+            // STEP 2: PERMISSION CHECK
+            $currentUserRole = auth()->user()->role;
+            $isAutoApproved = in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN']);
+
+            if (!$isAutoApproved && !$this->hasPermission('evening_reading_access')) {
+                return redirect()->back()->with('error', 'Insufficient permissions for evening readings');
+            }
+
+            // STEP 3: GET USER STATIONS - FIXED TABLE NAME
+            $userStations = $this->getUserStations(auth()->id());
+            $currentDate = Carbon::now()->toDateString();
+
+            // STEP 4: GET EVENING READINGS STATUS - CORRECTED QUERY
+            $eveningReadingsStatus = DB::table('readings')
+                ->select([
+                    'readings.id',
+                    'readings.station_id',
+                    'readings.tank_id',
+                    'readings.reading_date',
+                    'readings.reading_time',
+                    'readings.dip_reading_mm',
+                    'readings.dip_reading_liters',
+                    'readings.temperature_celsius',
+                    'readings.water_level_mm',
+                    'readings.reading_status',
+                    'readings.variance_from_expected_percentage',
+                    'readings.variance_from_expected_liters',
+                    'readings.product_type', // FIXED: Use actual column from readings table
+                    'tanks.tank_number',
+                    'tanks.capacity_liters',
+                    'stations.station_name',
+                    'products.product_name'
+                ])
+                ->join('tanks', 'readings.tank_id', '=', 'tanks.id')
+                ->join('stations', 'readings.station_id', '=', 'stations.id')
+                ->join('products', 'tanks.product_id', '=', 'products.id')
+                ->where('readings.reading_date', $currentDate)
+                ->where('readings.reading_shift', 'EVENING')
+                ->where('readings.reading_type', 'EVENING_DIP')
+                ->whereIn('readings.station_id', $userStations)
+                ->orderBy('stations.station_name')
+                ->orderBy('tanks.tank_number')
+                ->get();
+
+            // STEP 5: GET MISSING READINGS
+            $tanksWithMorningReadings = DB::table('readings')
+                ->select('tank_id')
+                ->where('reading_date', $currentDate)
+                ->where('reading_shift', 'MORNING')
+                ->where('reading_type', 'MORNING_DIP')
+                ->whereIn('station_id', $userStations)
+                ->pluck('tank_id');
+
+            $existingEveningReadings = $eveningReadingsStatus->pluck('tank_id');
+
+            $missingEveningReadings = DB::table('tanks')
+                ->select([
+                    'tanks.id',
+                    'tanks.tank_number',
+                    'tanks.capacity_liters',
+                    'stations.station_name',
+                    'products.product_name'
+                ])
+                ->join('stations', 'tanks.station_id', '=', 'stations.id')
+                ->join('products', 'tanks.product_id', '=', 'products.id')
+                ->whereIn('tanks.id', $tanksWithMorningReadings)
+                ->whereNotIn('tanks.id', $existingEveningReadings)
+                ->whereIn('tanks.station_id', $userStations)
+                ->get();
+
+            // STEP 6: GET VARIANCES
+            $eveningVariances = DB::table('readings')
+                ->select([
+                    'readings.tank_id',
+                    'readings.variance_from_expected_percentage',
+                    'readings.variance_from_expected_liters',
+                    'tanks.tank_number',
+                    'stations.station_name'
+                ])
+                ->join('tanks', 'readings.tank_id', '=', 'tanks.id')
+                ->join('stations', 'readings.station_id', '=', 'stations.id')
+                ->where('readings.reading_date', $currentDate)
+                ->where('readings.reading_shift', 'EVENING')
+                ->where('readings.reading_type', 'EVENING_DIP')
+                ->where('readings.reading_status', 'FLAGGED')
+                ->whereIn('readings.station_id', $userStations)
+                ->get();
+
+            // STEP 7: TIME VALIDATION (TOGGLEABLE)
+            $timeValidation = $this->validateTimeWindow('EVENING');
+
+            // STEP 8: AUDIT LOGGING (TOGGLEABLE)
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logAction([
+                    'action_type' => 'read',
+                    'action_category' => 'DATA_ACCESS',
+                    'table_name' => 'readings',
+                    'change_reason' => 'Evening readings dashboard accessed',
+                    'user_id' => auth()->id(),
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'is_auto_approved' => $isAutoApproved,
+                    'additional_data' => [
+                        'stations_accessed' => $userStations,
+                        'readings_count' => $eveningReadingsStatus->count(),
+                        'missing_readings_count' => $missingEveningReadings->count(),
+                        'variances_count' => $eveningVariances->count()
+                    ]
+                ]);
+            }
+
+            return view('evening.readings.index', compact(
+                'eveningReadingsStatus',
+                'missingEveningReadings',
+                'eveningVariances',
+                'currentDate',
+                'isAutoApproved',
+                'timeValidation'
+            ));
+
+        } catch (Exception $e) {
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logError([
+                    'user_id' => auth()->id(),
+                    'table_name' => 'readings',
+                    'error_message' => 'Evening readings index failed: ' . $e->getMessage(),
+                    'error_context' => 'Evening readings dashboard access'
+                ]);
+            }
+
+            return redirect()->back()->with('error', 'Failed to load evening readings dashboard');
+        }
+    }
+
+    /**
+     * Show the form for creating evening readings
+     */
+    public function create(Request $request)
+    {
+        try {
+            // STEP 1: MANDATORY SCHEMA VERIFICATION
+            $this->verifyRequiredTables([
+                'readings', 'tanks', 'stations', 'products',
+                'tank_calibration_tables', 'fuel_constants', 'system_configurations'
+            ]);
+
+            // STEP 2: PERMISSION CHECK
+            $currentUserRole = auth()->user()->role;
+            $isAutoApproved = in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN']);
+
+            if (!$isAutoApproved && !$this->hasPermission('evening_reading_create')) {
+                return redirect()->back()->with('error', 'Insufficient permissions to create evening readings');
+            }
+
+            // STEP 3: TIME VALIDATION (TOGGLEABLE)
+            $timeValidation = $this->validateTimeWindow('EVENING');
+            $currentDate = Carbon::now()->toDateString();
+
+            // STEP 4: GET USER STATIONS - FIXED TABLE NAME
+            $userStations = $this->getUserStations(auth()->id());
+
+            // STEP 5: GET AVAILABLE TANKS
+            $tanksWithMorningReadings = DB::table('readings')
+                ->select('tank_id')
+                ->where('reading_date', $currentDate)
+                ->where('reading_shift', 'MORNING')
+                ->where('reading_type', 'MORNING_DIP')
+                ->whereIn('station_id', $userStations)
+                ->pluck('tank_id');
+
+            $existingEveningReadings = DB::table('readings')
+                ->select('tank_id')
+                ->where('reading_date', $currentDate)
+                ->where('reading_shift', 'EVENING')
+                ->where('reading_type', 'EVENING_DIP')
+                ->whereIn('station_id', $userStations)
+                ->pluck('tank_id');
+
+            $availableTanks = DB::table('tanks')
+                ->select([
+                    'tanks.id',
+                    'tanks.tank_number',
+                    'tanks.capacity_liters',
+                    'tanks.product_id',
+                    'stations.id as station_id',
+                    'stations.station_name',
+                    'products.product_name',
+                    'products.product_code' // FIXED: Added product_code for product_type mapping
+                ])
+                ->join('stations', 'tanks.station_id', '=', 'stations.id')
+                ->join('products', 'tanks.product_id', '=', 'products.id')
+                ->whereIn('tanks.id', $tanksWithMorningReadings)
+                ->whereNotIn('tanks.id', $existingEveningReadings)
+                ->whereIn('tanks.station_id', $userStations)
+                ->get();
+
+            // STEP 6: GET MORNING READINGS CONTEXT
+            $morningReadings = DB::table('readings')
+                ->select([
+                    'tank_id',
+                    'id',
+                    'dip_reading_liters',
+                    'temperature_celsius'
+                ])
+                ->where('reading_date', $currentDate)
+                ->where('reading_shift', 'MORNING')
+                ->where('reading_type', 'MORNING_DIP')
+                ->whereIn('tank_id', $availableTanks->pluck('id'))
+                ->get()
+                ->keyBy('tank_id');
+
+            // STEP 7: GET TODAY'S DELIVERIES
+            $todaysDeliveries = DB::table('deliveries')
+                ->select([
+                    'tank_id',
+                    'quantity_delivered_liters',
+                    'delivery_time'
+                ])
+                ->whereDate('delivery_date', $currentDate)
+                ->whereIn('tank_id', $availableTanks->pluck('id'))
+                ->get()
+                ->groupBy('tank_id');
+
+            // STEP 8: GET METER READINGS (SALES) - FIXED: Use meter_readings table
+            $meterReadings = DB::table('meter_readings')
+                ->select([
+                    'pumps.tank_id',
+                    'meter_readings.reading_shift',
+                    'meter_readings.meter_reading_liters',
+                    DB::raw('LAG(meter_readings.meter_reading_liters) OVER (PARTITION BY meter_readings.pump_id ORDER BY meter_readings.reading_timestamp) as previous_meter_reading_liters'),
+                    DB::raw('meter_readings.meter_reading_liters - COALESCE(LAG(meter_readings.meter_reading_liters) OVER (PARTITION BY meter_readings.pump_id ORDER BY meter_readings.reading_timestamp), 0) as sales_liters')
+                ])
+                ->join('pumps', 'meter_readings.pump_id', '=', 'pumps.id')
+                ->where('meter_readings.reading_date', $currentDate)
+                ->where('meter_readings.reading_shift', 'EVENING')
+                ->whereIn('pumps.tank_id', $availableTanks->pluck('id'))
+                ->get()
+                ->groupBy('tank_id');
+
+            // STEP 9: AUDIT LOGGING (TOGGLEABLE)
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logAction([
+                    'action_type' => 'read',
+                    'action_category' => 'DATA_ENTRY',
+                    'table_name' => 'readings',
+                    'change_reason' => 'Evening readings create form accessed',
+                    'user_id' => auth()->id(),
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'is_auto_approved' => $isAutoApproved,
+                    'additional_data' => [
+                        'stations_accessed' => $userStations,
+                        'available_tanks' => $availableTanks->count()
+                    ]
+                ]);
+            }
+
+            return view('evening.readings.create', compact(
+                'availableTanks',
+                'morningReadings',
+                'todaysDeliveries',
+                'meterReadings',
+                'isAutoApproved',
+                'timeValidation',
+                'currentDate'
+            ));
+
+        } catch (Exception $e) {
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logError([
+                    'user_id' => auth()->id(),
+                    'table_name' => 'readings',
+                    'error_message' => 'Evening readings create form failed: ' . $e->getMessage(),
+                    'error_context' => 'Evening readings create form access'
+                ]);
+            }
+
+            return redirect()->back()->with('error', 'Failed to load evening readings form');
+        }
+    }
+
+    /**
+     * Store a newly created evening reading
+     */
+    public function store(Request $request)
+    {
+        try {
+            DB::beginTransaction();
+
+            // STEP 1: MANDATORY SCHEMA VERIFICATION
+            $this->verifyRequiredTables([
+                'readings', 'tanks', 'stations', 'products',
+                'tank_calibration_tables', 'fuel_constants', 'system_configurations'
+            ]);
+
+            // STEP 2: PERMISSION CHECK
+            $currentUserRole = auth()->user()->role;
+            $isAutoApproved = in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN']);
+
+            if (!$isAutoApproved && !$this->hasPermission('evening_reading_create')) {
+                return response()->json(['error' => 'Insufficient permissions'], 403);
+            }
+
+            // STEP 3: ENHANCED VALIDATION WITH DATE CONSTRAINTS
+            $validator = Validator::make($request->all(), [
+                'tank_id' => [
+                    'required',
+                    'exists:tanks,id',
+                    function ($attribute, $value, $fail) {
+                        $tank = DB::table('tanks')
+                            ->join('products', 'tanks.product_id', '=', 'products.id')
+                            ->where('tanks.id', $value)
+                            ->where('tanks.is_active', 1)
+                            ->where('products.is_active', 1)
+                            ->first();
+                        if (!$tank) {
+                            $fail('Selected tank or associated product is not available.');
+                        }
+                    }
+                ],
+                'reading_date' => [
+                    'required',
+                    'date',
+                    'before_or_equal:today',
+                    function ($attribute, $value, $fail) {
+                        $this->validateReadingDateConstraints($value, $fail);
+                    }
+                ],
+                'dip_mm' => [
+                    'required',
+                    'numeric',
+                    'min:0',
+                    'max:15000',
+                    'regex:/^\d+(\.\d{1,2})?$/'
+                ],
+                'temperature_celsius' => [
+                    'required',
+                    'numeric',
+                    'min:-10',
+                    'max:60',
+                    'regex:/^\d+(\.\d{1,1})?$/'
+                ],
+                'water_level_mm' => [
+                    'required',
+                    'numeric',
+                    'min:0',
+                    'max:1000',
+                    'regex:/^\d+(\.\d{1,2})?$/'
+                ],
+                'validation_notes' => 'nullable|string|max:1000'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Validation failed: ' . $validator->errors()->first()
+                ], 422);
+            }
+
+            $validatedData = $validator->validated();
+
+            // STEP 4: CHECK DUPLICATE
+            $existingReading = DB::table('readings')
+                ->where('tank_id', $validatedData['tank_id'])
+                ->where('reading_date', $validatedData['reading_date'])
+                ->where('reading_shift', 'EVENING')
+                ->where('reading_type', 'EVENING_DIP')
+                ->exists();
+
+            if ($existingReading) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Evening reading already exists for this tank today'
+                ], 400);
+            }
+
+            // STEP 5: GET TANK DETAILS WITH ENHANCED VALIDATION
+            $tank = $this->getTankWithCompleteDetails($validatedData['tank_id']);
+
+            // STEP 6: TEMPERATURE CORRECTION WITH PHYSICAL VALIDATION
+            $correctedVolume = $this->applyTemperatureCorrection(
+                $validatedData['dip_mm'],
+                $validatedData['temperature_celsius'],
+                $tank->product_id,
+                $tank->id
+            );
+
+            // STEP 7: PHYSICAL CONSTRAINT VALIDATION (ENHANCED)
+            $this->validatePhysicalConstraints($correctedVolume, $tank);
+
+            // STEP 8: GET PREVIOUS READING FOR CHAIN
+            $previousReading = $this->getPreviousReading($validatedData['tank_id'], 'MORNING');
+
+            // STEP 9: CALCULATE EXPECTED READING (RECONCILIATION LOGIC)
+            $expectedReading = $this->calculateExpectedEvening($validatedData['tank_id'], $validatedData['reading_date']);
+
+            // STEP 10: VARIANCE CALCULATION (0.001L PRECISION)
+            $varianceFromExpectedLiters = round($correctedVolume - $expectedReading['expected_liters'], 3);
+            $varianceFromExpectedPercentage = $expectedReading['expected_liters'] > 0
+                ? round(($varianceFromExpectedLiters / $expectedReading['expected_liters']) * 100, 3)
+                : 0;
+
+            // STEP 11: DETERMINE STATUS (TOGGLEABLE THRESHOLDS)
+            $readingStatus = $this->determineReadingStatus($varianceFromExpectedPercentage, $isAutoApproved);
+
+            // STEP 12: CALCULATE ULLAGE
+            $ullageCalculation = $this->calculateUllage($validatedData['tank_id'], $validatedData['dip_mm']);
+
+            // STEP 13: GET DENSITY READING
+            $densityReading = $this->getDensityReading($tank->product_id, $validatedData['temperature_celsius']);
+
+            // STEP 14: GENERATE SESSION ID
+            $readingSessionId = 'ERN_' . Carbon::now()->format('YmdHis') . '_' . auth()->id() . '_' . $tank->id;
+
+            // STEP 15: FIXED INSERT READING - Added missing mandatory columns
+            $readingId = DB::table('readings')->insertGetId([
+                'station_id' => $tank->station_id,
+                'reading_type' => 'EVENING_DIP',
+                'reading_date' => $validatedData['reading_date'],
+                'reading_time' => Carbon::now()->format('H:i:s'),
+                'reading_shift' => 'EVENING',
+                'tank_id' => $validatedData['tank_id'],
+                'pump_id' => null, // FIXED: Can be null for dip readings per schema
+                'product_type' => $tank->product_code, // FIXED: Added mandatory NOT NULL column
+                'dip_reading_mm' => $validatedData['dip_mm'],
+                'dip_reading_liters' => $correctedVolume,
+                'meter_reading_liters' => null,
+                'temperature_celsius' => $validatedData['temperature_celsius'],
+                'water_level_mm' => $validatedData['water_level_mm'],
+                'density_reading' => $densityReading,
+                'ullage_mm' => $ullageCalculation,
+                'previous_reading_id' => $previousReading['id'] ?? null,
+                'previous_dip_reading_liters' => $previousReading['dip_reading_liters'] ?? null,
+                'previous_meter_reading_liters' => null,
+                'calculated_sales_liters' => null,
+                'calculated_deliveries_liters' => null,
+                'calculated_stock_change_liters' => null,
+                'expected_reading_liters' => $expectedReading['expected_liters'],
+                'variance_from_expected_liters' => $varianceFromExpectedLiters,
+                'variance_from_expected_percentage' => $varianceFromExpectedPercentage,
+                'meter_dip_variance_liters' => null, // FIXED: Added schema column
+                'meter_dip_variance_percentage' => null, // FIXED: Added schema column
+                'reading_status' => $readingStatus,
+                'validation_error_code' => 'NONE',
+                'validation_notes' => $this->buildEnhancedValidationNotes(
+                    $validatedData['validation_notes'] ?? null,
+                    $varianceFromExpectedPercentage,
+                    $readingStatus
+                ),
+                'requires_recount' => $readingStatus === 'FLAGGED',
+                'recount_completed' => false,
+                'entry_method' => 'MANUAL',
+                'entry_device' => 'DESKTOP',
+                'reading_session_id' => $readingSessionId,
+                'reading_confidence_level' => $this->calculateReadingConfidenceLevel($varianceFromExpectedPercentage),
+                'environmental_conditions' => 'NORMAL',
+                'hash_previous' => $previousReading['hash_current'] ?? null,
+                'hash_current' => hash('sha256', json_encode([
+                    'tank_id' => $validatedData['tank_id'],
+                    'reading_date' => $validatedData['reading_date'],
+                    'dip_reading_liters' => $correctedVolume,
+                    'timestamp' => now(),
+                    'user_id' => auth()->id()
+                ])),
+                'hash_validation_status' => 'VALID',
+                'entered_by' => auth()->id(),
+                'validated_by' => null,
+                'approved_by' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'reading_timestamp' => now()
+            ]);
+
+            // STEP 16: AUTO-APPROVAL (IF ENABLED)
+            if ($isAutoApproved && $this->isFeatureEnabled('AUTO_APPROVAL')) {
+                DB::table('readings')
+                    ->where('id', $readingId)
+                    ->update([
+                        'approved_by' => auth()->id(),
+                        'reading_status' => 'APPROVED',
+                        'updated_at' => now()
+                    ]);
+
+                if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                    $this->auditService->logAction([
+                        'user_id' => auth()->id(),
+                        'station_id' => $tank->station_id,
+                        'table_name' => 'readings',
+                        'record_id' => $readingId,
+                        'action_type' => 'APPROVE',
+                        'action_category' => 'APPROVAL',
+                        'is_auto_approved' => true,
+                        'approval_reason' => "Auto-approved by role: {$currentUserRole}",
+                        'tank_id' => $validatedData['tank_id'],
+                        'variance_percentage' => $varianceFromExpectedPercentage,
+                        'ip_address' => $request->ip(),
+                        'user_agent' => $request->userAgent(),
+                        'session_id' => session()->getId()
+                    ]);
+                }
+            }
+
+            // STEP 17: STORED PROCEDURE CALL (TOGGLEABLE)
+            if ($this->isFeatureEnabled('SYSTEM_MONITORING')) {
+                try {
+                    DB::statement('CALL sp_enhanced_system_monitor()');
+                } catch (Exception $e) {
+                    // Log but don't fail - monitoring is optional
+                    if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                        $this->auditService->logError([
+                            'user_id' => auth()->id(),
+                            'error_message' => 'System monitoring call failed: ' . $e->getMessage(),
+                            'error_context' => 'Evening reading store - optional monitoring'
+                        ]);
+                    }
+                }
+            }
+
+            DB::commit();
+
+            // STEP 18: FINAL AUDIT LOGGING (TOGGLEABLE)
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logAction([
+                    'user_id' => auth()->id(),
+                    'station_id' => $tank->station_id,
+                    'action_type' => 'CREATE',
+                    'action_category' => 'DATA_ENTRY',
+                    'table_name' => 'readings',
+                    'record_id' => $readingId,
+                    'new_values' => $validatedData,
+                    'change_reason' => 'Evening reading created',
+                    'business_justification' => 'Daily fuel inventory management',
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'session_id' => session()->getId(),
+                    'operation_timestamp' => now(),
+                    'variance_analysis' => [
+                        'variance_percentage' => $varianceFromExpectedPercentage,
+                        'variance_liters' => $varianceFromExpectedLiters,
+                        'reading_status' => $readingStatus,
+                        'expected_reading' => $expectedReading['expected_liters']
+                    ]
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Evening reading created successfully',
+                'data' => [
+                    'reading_id' => $readingId,
+                    'tank_number' => $tank->tank_number,
+                    'reading_date' => $validatedData['reading_date'],
+                    'dip_reading_liters' => $correctedVolume,
+                    'variance_percentage' => round($varianceFromExpectedPercentage, 2),
+                    'reading_status' => $readingStatus,
+                    'auto_approved' => $isAutoApproved && $this->isFeatureEnabled('AUTO_APPROVAL')
+                ],
+                'timestamp' => now()->toISOString()
+            ], 201);
+
+        } catch (Exception $e) {
+            DB::rollback();
+
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logError([
+                    'user_id' => auth()->id(),
+                    'table_name' => 'readings',
+                    'error_message' => 'Evening reading store failed: ' . $e->getMessage(),
+                    'error_context' => 'Evening reading store method',
+                    'request_data' => $request->all()
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'error' => $this->getUserFriendlyErrorMessage($e->getMessage()),
+                'timestamp' => now()->toISOString()
+            ], 500);
+        }
+    }
+
+    /**
+     * Show the form for editing an evening reading
+     */
+    public function edit($id)
+    {
+        try {
+            // STEP 1: PERMISSION CHECK
+            $currentUserRole = auth()->user()->role;
+            $isAutoApproved = in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN']);
+
+            if (!$isAutoApproved && !$this->hasPermission('evening_reading_edit')) {
+                return redirect()->back()->with('error', 'Insufficient permissions to edit evening readings');
+            }
+
+            // STEP 2: GET READING WITH TANK DETAILS
+            $reading = DB::table('readings')
+                ->select([
+                    'readings.*',
+                    'tanks.tank_number',
+                    'tanks.capacity_liters',
+                    'stations.station_name',
+                    'products.product_name'
+                ])
+                ->join('tanks', 'readings.tank_id', '=', 'tanks.id')
+                ->join('stations', 'readings.station_id', '=', 'stations.id')
+                ->join('products', 'tanks.product_id', '=', 'products.id')
+                ->where('readings.id', $id)
+                ->where('readings.reading_type', 'EVENING_DIP')
+                ->first();
+
+            if (!$reading) {
+                return redirect()->back()->with('error', 'Evening reading not found');
+            }
+
+            // STEP 3: CHECK USER ACCESS - FIXED TABLE NAME
+            $userStations = $this->getUserStations(auth()->id());
+            if (!in_array($reading->station_id, $userStations) && !$isAutoApproved) {
+                return redirect()->back()->with('error', 'Access denied to this station');
+            }
+
+            return view('evening.readings.edit', compact('reading', 'isAutoApproved'));
+
+        } catch (Exception $e) {
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logError([
+                    'user_id' => auth()->id(),
+                    'table_name' => 'readings',
+                    'error_message' => 'Evening reading edit form failed: ' . $e->getMessage(),
+                    'error_context' => 'Evening reading edit form access',
+                    'record_id' => $id
+                ]);
+            }
+
+            return redirect()->back()->with('error', 'Failed to load evening reading for editing');
+        }
+    }
+
+    /**
+     * Update an evening reading
+     */
+    public function update(Request $request, $id)
+    {
+        try {
+            DB::beginTransaction();
+
+            // STEP 1: PERMISSION CHECK
+            $currentUserRole = auth()->user()->role;
+            $isAutoApproved = in_array($currentUserRole, ['CEO', 'SYSTEM_ADMIN']);
+
+            if (!$isAutoApproved && !$this->hasPermission('evening_reading_edit')) {
+                return response()->json(['error' => 'Insufficient permissions'], 403);
+            }
+
+            // STEP 2: VALIDATION
+            $validator = Validator::make($request->all(), [
+                'dip_mm' => [
+                    'required',
+                    'numeric',
+                    'min:0',
+                    'max:15000',
+                    'regex:/^\d+(\.\d{1,2})?$/'
+                ],
+                'temperature_celsius' => [
+                    'required',
+                    'numeric',
+                    'min:-10',
+                    'max:60',
+                    'regex:/^\d+(\.\d{1,1})?$/'
+                ],
+                'water_level_mm' => [
+                    'required',
+                    'numeric',
+                    'min:0',
+                    'max:1000',
+                    'regex:/^\d+(\.\d{1,2})?$/'
+                ],
+                'validation_notes' => 'nullable|string|max:1000'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Validation failed: ' . $validator->errors()->first()
+                ], 422);
+            }
+
+            $validatedData = $validator->validated();
+
+            // STEP 3: GET EXISTING READING
+            $existingReading = DB::table('readings')
+                ->select([
+                    'id', 'tank_id', 'station_id', 'reading_date',
+                    'dip_reading_mm', 'dip_reading_liters', 'temperature_celsius',
+                    'water_level_mm', 'validation_notes', 'hash_current'
+                ])
+                ->where('id', $id)
+                ->where('reading_type', 'EVENING_DIP')
+                ->first();
+
+            if (!$existingReading) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Evening reading not found'
+                ], 404);
+            }
+
+            // STEP 4: GET TANK DETAILS WITH ENHANCED VALIDATION
+            $tank = $this->getTankWithCompleteDetails($existingReading->tank_id);
+
+            // STEP 5: TEMPERATURE CORRECTION
+            $correctedVolume = $this->applyTemperatureCorrection(
+                $validatedData['dip_mm'],
+                $validatedData['temperature_celsius'],
+                $tank->product_id,
+                $tank->id
+            );
+
+            // STEP 6: RECALCULATE VARIANCE
+            $expectedReading = $this->calculateExpectedEvening($existingReading->tank_id, $existingReading->reading_date);
+            $varianceFromExpectedLiters = round($correctedVolume - $expectedReading['expected_liters'], 3);
+            $varianceFromExpectedPercentage = $expectedReading['expected_liters'] > 0
+                ? round(($varianceFromExpectedLiters / $expectedReading['expected_liters']) * 100, 3)
+                : 0;
+
+            // STEP 7: DETERMINE NEW STATUS
+            $readingStatus = $this->determineReadingStatus($varianceFromExpectedPercentage, $isAutoApproved);
+
+            // STEP 8: UPDATE READING
+            DB::table('readings')
+                ->where('id', $id)
+                ->update([
+                    'dip_reading_mm' => $validatedData['dip_mm'],
+                    'dip_reading_liters' => $correctedVolume,
+                    'temperature_celsius' => $validatedData['temperature_celsius'],
+                    'water_level_mm' => $validatedData['water_level_mm'],
+                    'variance_from_expected_liters' => $varianceFromExpectedLiters,
+                    'variance_from_expected_percentage' => $varianceFromExpectedPercentage,
+                    'reading_status' => $readingStatus,
+                    'validation_notes' => $validatedData['validation_notes'],
+                    'updated_at' => now()
+                ]);
+
+            DB::commit();
+
+            // STEP 9: AUDIT LOGGING (TOGGLEABLE)
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logAction([
+                    'action_type' => 'UPDATE',
+                    'action_category' => 'DATA_ENTRY',
+                    'table_name' => 'readings',
+                    'record_id' => $id,
+                    'change_reason' => 'Evening reading updated by ' . $currentUserRole,
+                    'old_values' => [
+                        'dip_reading_mm' => $existingReading->dip_reading_mm,
+                        'temperature_celsius' => $existingReading->temperature_celsius,
+                        'water_level_mm' => $existingReading->water_level_mm
+                    ],
+                    'new_values' => $validatedData,
+                    'user_id' => auth()->id(),
+                    'station_id' => $tank->station_id,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent()
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Evening reading updated successfully',
+                'data' => [
+                    'reading_id' => $id,
+                    'dip_reading_liters' => $correctedVolume,
+                    'variance_percentage' => round($varianceFromExpectedPercentage, 2),
+                    'reading_status' => $readingStatus
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            DB::rollback();
+
+            if ($this->isFeatureEnabled('AUDIT_LOGGING')) {
+                $this->auditService->logError([
+                    'user_id' => auth()->id(),
+                    'table_name' => 'readings',
+                    'error_message' => 'Evening reading update failed: ' . $e->getMessage(),
+                    'error_context' => 'Evening reading update method',
+                    'record_id' => $id
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to update evening reading: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // =====================================
+    // CRITICAL MISSING METHODS - FIXED IMPLEMENTATIONS
+    // =====================================
+
+    /**
+     * 🔥 CRITICAL FIX: Get tank with complete details
+     */
+    private function getTankWithCompleteDetails(int $tankId): object
+    {
+        $tank = DB::table('tanks')
+            ->select([
+                'tanks.id',
+                'tanks.tank_number',
+                'tanks.station_id',
+                'tanks.product_id',
+                'tanks.capacity_liters',
+                'tanks.is_active',
+                'stations.station_name',
+                'products.product_name',
+                'products.product_code',
+                'products.is_active as product_active'
+            ])
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->where('tanks.id', $tankId)
+            ->first();
+
+        if (!$tank) {
+            throw new Exception("Tank {$tankId} not found or inactive");
+        }
+
+        if (!$tank->is_active || !$tank->product_active) {
+            throw new Exception("Tank {$tankId} or associated product is inactive");
+        }
+
+        // Validate calibration data exists
+        $calibrationExists = DB::table('tank_calibration_tables')
+            ->where('tank_id', $tankId)
+            ->exists();
+
+        if (!$calibrationExists) {
+            throw new Exception("Tank {$tankId} calibration data missing. Contact maintenance.");
+        }
+
+        return $tank;
+    }
+
+    /**
+     * 🔥 CRITICAL FIX: Calculate expected evening reading - FIXED SALES CALCULATION
+     */
+    private function calculateExpectedEvening(int $tankId, string $readingDate): array
+    {
+        // Get morning reading
+        $morningReading = DB::table('readings')
+            ->select(['dip_reading_liters'])
+            ->where('tank_id', $tankId)
+            ->where('reading_date', $readingDate)
+            ->where('reading_shift', 'MORNING')
+            ->where('reading_type', 'MORNING_DIP')
+            ->first();
+
+        if (!$morningReading) {
+            throw new Exception("Morning reading required for tank {$tankId} on {$readingDate} before evening reading");
+        }
+
+        $morningVolume = $morningReading->dip_reading_liters;
+
+        // Get today's deliveries with timing validation
+        $deliveries = DB::table('deliveries')
+            ->select(['quantity_delivered_liters', 'delivery_time'])
+            ->where('tank_id', $tankId)
+            ->whereDate('delivery_date', $readingDate)
+            ->where('delivery_status', 'COMPLETED')
+            ->get();
+
+        $totalDeliveries = $deliveries->sum('quantity_delivered_liters') ?? 0;
+
+        // Validate delivery timing (after morning reading)
+        foreach ($deliveries as $delivery) {
+            $deliveryTime = Carbon::parse($delivery->delivery_time);
+            $morningTime = Carbon::parse('06:00:00');
+
+            if ($deliveryTime->lessThan($morningTime)) {
+                throw new Exception("Delivery timing error: delivery before morning reading time affects calculation");
+            }
+        }
+
+        // FIXED: Get today's sales from meter_readings table via pumps
+        $totalSales = DB::table('meter_readings')
+            ->join('pumps', 'meter_readings.pump_id', '=', 'pumps.id')
+            ->where('pumps.tank_id', $tankId)
+            ->where('meter_readings.reading_date', $readingDate)
+            ->selectRaw('
+                SUM(
+                    meter_readings.meter_reading_liters -
+                    COALESCE(
+                        LAG(meter_readings.meter_reading_liters) OVER (
+                            PARTITION BY meter_readings.pump_id
+                            ORDER BY meter_readings.reading_timestamp
+                        ),
+                        0
+                    )
+                ) as total_sales
+            ')
+            ->value('total_sales') ?? 0;
+
+        // Apply evaporation/temperature loss factors
+        $evaporationLoss = $this->calculateEvaporationLoss($tankId, $readingDate);
+
+        $expectedLiters = $morningVolume + $totalDeliveries - $totalSales - $evaporationLoss;
+
+        return [
+            'expected_liters' => round(max(0, $expectedLiters), 3),
+            'morning_volume' => round($morningVolume, 3),
+            'deliveries' => round($totalDeliveries, 3),
+            'sales' => round($totalSales, 3),
+            'evaporation_loss' => round($evaporationLoss, 3),
+            'calculation_method' => 'COMPLETE_RECONCILIATION_LOGIC',
+            'validation_passed' => true
+        ];
+    }
+
+    /**
+     * 🔥 CRITICAL FIX: Validate physical constraints
+     */
+    private function validatePhysicalConstraints(float $correctedVolume, object $tank): void
+    {
+        // Tank capacity validation
+        if ($correctedVolume > $tank->capacity_liters) {
+            throw new Exception(
+                "Physical impossibility: Reading shows {$correctedVolume}L but tank capacity is {$tank->capacity_liters}L"
+            );
+        }
+
+        // Negative volume validation
+        if ($correctedVolume < 0) {
+            throw new Exception("Physical impossibility: Negative volume reading ({$correctedVolume}L)");
+        }
+
+        // Rate of change validation
+        $previousReading = DB::table('readings')
+            ->select(['dip_reading_liters', 'reading_timestamp'])
+            ->where('tank_id', $tank->id)
+            ->orderBy('reading_timestamp', 'desc')
+            ->first();
+
+        if ($previousReading) {
+            $volumeChange = abs($correctedVolume - $previousReading->dip_reading_liters);
+            $timeElapsed = Carbon::now()->diffInHours(Carbon::parse($previousReading->reading_timestamp));
+
+            if ($timeElapsed > 0) {
+                $changeRate = $volumeChange / $timeElapsed;
+
+                // Maximum change rate: 5000L per hour (delivery scenario)
+                if ($changeRate > 5000) {
+                    throw new Exception(
+                        "Physically impossible rate of change: {$changeRate}L/hour exceeds maximum delivery rate"
+                    );
+                }
+            }
+        }
+
+        // Check against calibration limits
+        $calibrationLimits = DB::table('tank_calibration_tables')
+            ->where('tank_id', $tank->id)
+            ->selectRaw('MIN(volume_liters) as min_volume, MAX(volume_liters) as max_volume')
+            ->first();
+
+        if ($calibrationLimits) {
+            if ($correctedVolume < $calibrationLimits->min_volume || $correctedVolume > $calibrationLimits->max_volume) {
+                throw new Exception(
+                    "Reading outside calibration range: {$correctedVolume}L not within {$calibrationLimits->min_volume}L - {$calibrationLimits->max_volume}L"
+                );
+            }
+        }
+    }
+
+    /**
+     * 🔥 CRITICAL FIX: Build enhanced validation notes
+     */
+    private function buildEnhancedValidationNotes(?string $userNotes, float $variancePercentage, string $readingStatus): string
+    {
+        $notes = [];
+
+        // Add user notes if provided
+        if ($userNotes) {
+            $notes[] = "USER: " . $userNotes;
+        }
+
+        // Add variance explanation
+        $absVariance = abs($variancePercentage);
+        if ($absVariance <= 0.5) {
+            $notes[] = "SYSTEM: Variance within normal range ({$variancePercentage}%)";
+        } elseif ($absVariance <= 2.0) {
+            $notes[] = "SYSTEM: Moderate variance detected ({$variancePercentage}%) - requires review";
+        } else {
+            $notes[] = "SYSTEM: Significant variance detected ({$variancePercentage}%) - investigation required";
+        }
+
+        // Add automated recommendations
+        if ($readingStatus === 'FLAGGED') {
+            $notes[] = "RECOMMENDATION: Verify dip measurement accuracy, check for deliveries/sales, validate temperature reading";
+        }
+
+        // Add mathematical precision note
+        $notes[] = "PRECISION: Temperature corrected to 0.001L tolerance";
+
+        // Add timestamp
+        $notes[] = "VALIDATED: " . Carbon::now()->format('Y-m-d H:i:s');
+
+        return implode(' | ', $notes);
+    }
+
+    // =====================================
+    // EXISTING HELPER METHODS - ENHANCED
+    // =====================================
+
+    /**
+     * Calculate evaporation loss for expected reading calculation
+     */
+    private function calculateEvaporationLoss(int $tankId, string $readingDate): float
+    {
+        // Get fuel type for evaporation rate
+        $productType = DB::table('tanks')
+            ->join('products', 'tanks.product_id', '=', 'products.id')
+            ->where('tanks.id', $tankId)
+            ->value('products.product_code');
+
+        // Evaporation rates per product type (L per 1000L per day)
+        $evaporationRates = [
+            'PETROL_95' => 0.8,
+            'PETROL_98' => 0.7,
+            'DIESEL' => 0.3,
+            'KEROSENE' => 0.5
+        ];
+
+        $evaporationRate = $evaporationRates[$productType] ?? 0.5;
+
+        // Get current stock for calculation
+        $currentStock = DB::table('readings')
+            ->where('tank_id', $tankId)
+            ->where('reading_date', $readingDate)
+            ->where('reading_shift', 'MORNING')
+            ->where('reading_type', 'MORNING_DIP')
+            ->value('dip_reading_liters') ?? 0;
+
+        return round(($currentStock / 1000) * $evaporationRate, 3);
+    }
+
+    /**
+     * Calculate reading confidence level
+     */
+    private function calculateReadingConfidenceLevel(float $variancePercentage): string
+    {
+        $absVariance = abs($variancePercentage);
+
+        if ($absVariance <= 0.5) {
+            return 'HIGH';
+        } elseif ($absVariance <= 2.0) {
+            return 'MEDIUM';
+        } else {
+            return 'LOW';
+        }
+    }
+
+    /**
+     * Validate reading date constraints
+     */
+    private function validateReadingDateConstraints(string $readingDate, $fail): void
+    {
+        $date = Carbon::parse($readingDate);
+        $today = Carbon::now();
+
+        // Cannot be future date
+        if ($date->isFuture()) {
+            $fail('Reading date cannot be in the future');
+        }
+
+        // Cannot be more than 7 days old
+        if ($date->diffInDays($today) > 7) {
+            $fail('Reading date cannot be more than 7 days old');
+        }
+
+        // Must be valid business day if configured
+        if ($this->isFeatureEnabled('BUSINESS_DAY_VALIDATION')) {
+            if ($date->isWeekend()) {
+                $fail('Reading date must be a business day');
+            }
+        }
+    }
+
+    /**
+     * Get user friendly error message
+     */
+    private function getUserFriendlyErrorMessage(string $errorMessage): string
+    {
+        $friendlyMessages = [
+            'Tank' => 'Tank configuration error. Contact support.',
+            'Calibration' => 'Tank calibration data missing. Contact maintenance.',
+            'Physical impossibility' => 'Reading value appears incorrect. Please verify and re-enter.',
+            'Trigger' => 'System automation error. Contact IT support.',
+            'FIFO' => 'Inventory calculation error. Contact support.',
+            'Database' => 'System error. Please try again or contact support.'
+        ];
+
+        foreach ($friendlyMessages as $keyword => $message) {
+            if (stripos($errorMessage, $keyword) !== false) {
+                return $message;
+            }
+        }
+
+        return 'An error occurred. Please contact support if the problem persists.';
+    }
+
+    // =====================================
+    // MANDATORY SCHEMA VERIFICATION
+    // =====================================
+
+    /**
+     * Verify required database tables exist
+     */
+    private function verifyRequiredTables(array $requiredTables): void
+    {
+        foreach ($requiredTables as $table) {
+            if (!DB::getSchemaBuilder()->hasTable($table)) {
+                throw new Exception("SCHEMA ERROR: Required table '{$table}' not found. Database schema incomplete.");
+            }
+        }
+    }
+
+    // =====================================
+    // TOGGLEABLE FEATURE HELPERS
+    // =====================================
+
+    /**
+     * Check if feature is enabled via system_configurations
+     */
+    private function isFeatureEnabled(string $feature): bool
+    {
+        $configKeys = [
+            'AUDIT_LOGGING' => 'ENHANCED_MONITORING_ENABLED',
+            'AUTO_APPROVAL' => 'AUTO_APPROVAL_ENABLED',
+            'SYSTEM_MONITORING' => 'ENHANCED_MONITORING_ENABLED',
+            'TIME_VALIDATION' => 'TIME_WINDOW_VALIDATION_ENABLED',
+            'VARIANCE_THRESHOLDS' => 'VARIANCE_THRESHOLD_ENABLED',
+            'BUSINESS_DAY_VALIDATION' => 'BUSINESS_DAY_VALIDATION_ENABLED'
+        ];
+
+        $configKey = $configKeys[$feature] ?? null;
+        if (!$configKey) {
+            return false; // Feature not recognized, default to disabled
+        }
+
+        try {
+            $enabled = DB::table('system_configurations')
+                ->where('config_key', $configKey)
+                ->value('config_value_boolean');
+
+            return (bool) $enabled;
+        } catch (Exception $e) {
+            return false; // If config check fails, default to disabled for safety
+        }
+    }
+
+    // =====================================
+    // CORE BUSINESS LOGIC HELPERS
+    // =====================================
+
+    /**
+     * Check if user has permission for specific action
+     */
+    private function hasPermission(string $permission): bool
+    {
+        $userRole = auth()->user()->role;
+
+        $permissions = [
+            'CEO' => ['evening_reading_access', 'evening_reading_create', 'evening_reading_edit'],
+            'SYSTEM_ADMIN' => ['evening_reading_access', 'evening_reading_create', 'evening_reading_edit'],
+            'STATION_MANAGER' => ['evening_reading_access', 'evening_reading_create', 'evening_reading_edit'],
+            'SHIFT_SUPERVISOR' => ['evening_reading_access', 'evening_reading_create'],
+            'ATTENDANT' => ['evening_reading_access', 'evening_reading_create']
+        ];
+
+        return in_array($permission, $permissions[$userRole] ?? []);
+    }
+
+    /**
+     * FIXED: Get user's assigned stations - Corrected table name
+     */
+    private function getUserStations(int $userId): array
+    {
+        if (in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN'])) {
+            return DB::table('stations')->pluck('id')->toArray();
+        }
+
+        // FIXED: Use correct table name 'user_stations' instead of 'user_station_assignments'
+        return DB::table('user_stations')
+            ->where('user_id', $userId)
+            ->where('is_active', 1) // Added schema compliance
+            ->pluck('station_id')
+            ->toArray();
+    }
+
+    /**
+     * Validate time window for evening readings (TOGGLEABLE)
+     */
+    private function validateTimeWindow(string $shift): array
+    {
+        if (!$this->isFeatureEnabled('TIME_VALIDATION')) {
+            return [
+                'valid' => true,
+                'message' => 'Time validation disabled',
+                'current_hour' => (int) Carbon::now()->format('H')
+            ];
+        }
+
+        // Try database function first
+        try {
+            $currentTime = Carbon::now()->format('H:i:s');
+            $validation = DB::selectOne("SELECT fn_validate_entry_time(?, ?) as valid", [$shift, $currentTime]);
+            $valid = (bool)$validation->valid;
+
+            return [
+                'valid' => $valid,
+                'message' => $valid ? 'Within evening reading window' : 'Evening readings allowed between 5:00 PM and 11:00 PM',
+                'current_hour' => (int) Carbon::now()->format('H'),
+                'validated_via_database' => true
+            ];
+        } catch (Exception $e) {
+            // Fallback validation
+            $currentHour = (int) Carbon::now()->format('H');
+            $validHours = range(17, 23); // 5 PM to 11 PM
+            $valid = in_array($currentHour, $validHours);
+
+            return [
+                'valid' => $valid,
+                'message' => $valid ? 'Within evening reading window' : 'Evening readings allowed between 5:00 PM and 11:00 PM',
+                'current_hour' => $currentHour,
+                'validated_via_database' => false,
+                'fallback_reason' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Apply temperature correction using interpolated calibration (ENHANCED)
+     */
+    private function applyTemperatureCorrection(float $dipMm, float $temperatureCelsius, int $productId, int $tankId): float
+    {
+        try {
+            // Get fuel constants
+            $fuelConstants = DB::table('fuel_constants')
+                ->select([
+                    'density_15c',
+                    'thermal_expansion_coefficient',
+                    'vapor_pressure_correction',
+                    'temperature_reference_celsius'
+                ])
+                ->where('product_id', $productId)
+                ->first();
+
+            if (!$fuelConstants) {
+                $fuelConstants = (object)[
+                    'density_15c' => 0.7500,
+                    'thermal_expansion_coefficient' => 0.001200,
+                    'vapor_pressure_correction' => 0.980,
+                    'temperature_reference_celsius' => 15
+                ];
+            }
+
+            // ENHANCED: Get calibration data with interpolation
+            $baseVolume = $this->calculateVolumeWithInterpolation($dipMm, $tankId);
+
+            // Apply temperature correction
+            $temperatureDifference = $temperatureCelsius - $fuelConstants->temperature_reference_celsius;
+            $correctionFactor = 1 - ($fuelConstants->thermal_expansion_coefficient * $temperatureDifference);
+            $correctedVolume = $baseVolume * $correctionFactor * $fuelConstants->vapor_pressure_correction;
+
+            return round($correctedVolume, 3); // 0.001L precision
+
+        } catch (Exception $e) {
+            throw new Exception("Temperature correction failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Calculate volume using interpolation for higher accuracy (ENHANCED)
+     */
+    private function calculateVolumeWithInterpolation(float $dipMm, int $tankId): float
+    {
+        try {
+            // Get calibration data
+            $calibrations = DB::table('tank_calibration_tables')
+                ->where('tank_id', $tankId)
+                ->orderBy('dip_mm')
+                ->get();
+
+            if ($calibrations->isEmpty()) {
+                throw new Exception('Tank calibration data not available. Contact maintenance.');
+            }
+
+            // Find interpolation points
+            $lower = null;
+            $upper = null;
+
+            foreach ($calibrations as $cal) {
+                if ($cal->dip_mm <= $dipMm) {
+                    $lower = $cal;
+                }
+                if ($cal->dip_mm >= $dipMm && !$upper) {
+                    $upper = $cal;
+                    break;
+                }
+            }
+
+            // Calculate base volume using interpolation
+            if ($lower && $upper && $lower->dip_mm != $upper->dip_mm) {
+                $ratio = ($dipMm - $lower->dip_mm) / ($upper->dip_mm - $lower->dip_mm);
+                $baseVolume = $lower->volume_liters + ($ratio * ($upper->volume_liters - $lower->volume_liters));
+            } elseif ($lower) {
+                $baseVolume = $lower->volume_liters;
+            } elseif ($upper) {
+                $baseVolume = $upper->volume_liters;
+            } else {
+                throw new Exception('Unable to determine volume from calibration data.');
+            }
+
+            return round(max(0, $baseVolume), 3);
+        } catch (Exception $e) {
+            throw new Exception("Volume calculation failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get previous reading for continuity
+     */
+    private function getPreviousReading(int $tankId, string $shift): ?array
+    {
+        $reading = DB::table('readings')
+            ->select(['id', 'dip_reading_liters', 'hash_current'])
+            ->where('tank_id', $tankId)
+            ->where('reading_shift', $shift)
+            ->where('reading_type', $shift === 'MORNING' ? 'MORNING_DIP' : 'EVENING_DIP')
+            ->orderBy('reading_timestamp', 'desc')
+            ->first();
+
+        return $reading ? [
+            'id' => $reading->id,
+            'dip_reading_liters' => $reading->dip_reading_liters,
+            'hash_current' => $reading->hash_current
+        ] : null;
+    }
+
+    /**
+     * Determine reading status based on variance (TOGGLEABLE THRESHOLDS)
+     */
+    private function determineReadingStatus(float $variancePercentage, bool $isAutoApproved): string
+    {
+        if (!$this->isFeatureEnabled('VARIANCE_THRESHOLDS')) {
+            return $isAutoApproved ? 'APPROVED' : 'VALIDATED';
+        }
+
+        // Get thresholds from database
+        try {
+            $minorThreshold = DB::table('system_configurations')
+                ->where('config_key', 'MINOR_VARIANCE_PERCENTAGE')
+                ->value('config_value_numeric') ?? 0.5;
+
+            $moderateThreshold = DB::table('system_configurations')
+                ->where('config_key', 'MODERATE_VARIANCE_PERCENTAGE')
+                ->value('config_value_numeric') ?? 2.0;
+
+            $absVariance = abs($variancePercentage);
+
+            if ($absVariance <= $minorThreshold) {
+                return $isAutoApproved ? 'APPROVED' : 'VALIDATED';
+            } elseif ($absVariance <= $moderateThreshold) {
+                return $isAutoApproved ? 'APPROVED' : 'PENDING';
+            } else {
+                return 'FLAGGED';
+            }
+        } catch (Exception $e) {
+            // Fallback to simple logic if threshold lookup fails
+            $absVariance = abs($variancePercentage);
+            if ($absVariance <= 0.5) {
+                return $isAutoApproved ? 'APPROVED' : 'VALIDATED';
+            } elseif ($absVariance <= 2.0) {
+                return $isAutoApproved ? 'APPROVED' : 'PENDING';
+            } else {
+                return 'FLAGGED';
+            }
+        }
+    }
+
+    /**
+     * Calculate ullage (empty space in tank)
+     */
+    private function calculateUllage(int $tankId, float $dipMm): float
+    {
+        try {
+            $tank = DB::table('tanks')
+                ->select('capacity_liters')
+                ->where('id', $tankId)
+                ->first();
+
+            if (!$tank) return 0;
+
+            // Get maximum dip for full tank
+            $maxCalibration = DB::table('tank_calibration_tables')
+                ->select('dip_mm')
+                ->where('tank_id', $tankId)
+                ->orderBy('dip_mm', 'desc')
+                ->first();
+
+            $maxDipMm = $maxCalibration ? $maxCalibration->dip_mm : 3000;
+
+            return round(max(0, $maxDipMm - $dipMm), 2);
+        } catch (Exception $e) {
+            return 0; // Return safe default if calculation fails
+        }
+    }
+
+    /**
+     * Get density reading for fuel
+     */
+    private function getDensityReading(int $productId, float $temperature): float
+    {
+        try {
+            $fuelConstants = DB::table('fuel_constants')
+                ->select('density_15c', 'thermal_expansion_coefficient')
+                ->where('product_id', $productId)
+                ->first();
+
+            if (!$fuelConstants) {
+                return 0.7500; // Default density
+            }
+
+            // Adjust density for temperature
+            $temperatureDifference = $temperature - 15;
+            $densityCorrection = $fuelConstants->thermal_expansion_coefficient * $temperatureDifference;
+
+            return round($fuelConstants->density_15c * (1 - $densityCorrection), 4);
+        } catch (Exception $e) {
+            return 0.7500; // Return safe default if calculation fails
+        }
+    }
+
+    /**
+     * Get product type from tank - FIXED: Return product_code for enum compatibility
+     */
+    private function getProductTypeFromTank(int $tankId): string
+    {
+        try {
+            $product = DB::table('tanks')
+                ->join('products', 'tanks.product_id', '=', 'products.id')
+                ->select('products.product_code')
+                ->where('tanks.id', $tankId)
+                ->first();
+
+            return $product ? $product->product_code : 'PETROL_95';
+        } catch (Exception $e) {
+            return 'PETROL_95'; // Return safe default if lookup fails
+        }
+    }
+}

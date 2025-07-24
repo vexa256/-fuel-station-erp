@@ -1,0 +1,581 @@
+# 📋 MODULE 3: OPERATIONAL DATA ENTRY & READING MANAGEMENT
+
+## **MODULE SCOPE & BUSINESS CONTEXT**
+
+This module handles the critical operational data entry that drives the entire fuel ERP system. It manages morning and evening dip readings, pump meter readings, delivery recording, and implements sophisticated dual-calculation validation to detect variances and potential fraud. Every entry triggers real-time calculations, variance detection, and automatic approval workflows while maintaining forensic-level audit trails.
+
+## **CONTROLLERS & FUNCTIONALITY BREAKDOWN**
+
+### **1. ReadingController - Dip & Meter Reading Management Engine**
+
+**File**: `app/Http/Controllers/ReadingController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive reading management dashboard with real-time validation status
+- **Data Integration**:
+  1. Query dip_readings table with exact column names (tank_id, reading_date, reading_shift, dip_mm, volume_liters)
+  2. Query meter_readings table joining with pumps for tank correlation
+  3. Calculate reading completeness percentage for operational compliance
+  4. Identify missing readings with automated flagging and notification triggers
+  5. Cross-reference readings with delivery schedules for validation consistency
+  6. Generate variance alerts where physical calculations don't match meter calculations
+- **Reading Status Matrix**:
+  - COMPLETE: All required readings entered within time windows
+  - PARTIAL: Some readings missing, auto-escalation to management
+  - OVERDUE: Readings past deadline, CEO notification triggered
+  - VARIANCE: Calculations don't match, immediate investigation required
+- **CEO/SYSTEM_ADMIN Dashboard**: Multi-station reading oversight with pattern analysis
+- **STATION_MANAGER Dashboard**: Single station focus with operational priorities
+- **Tables Used**: `dip_readings`, `meter_readings`, `pumps`, `tanks`, `variances`, `deliveries`
+
+##### **createMorning(Request $request)**
+- **Business Logic**: Morning reading entry with continuity validation and overnight variance detection
+- **Validation Sequence**:
+  1. Verify reading_date continuity (must follow previous evening reading)
+  2. Validate dip_mm against tank_calibration_tables for volume_liters conversion
+  3. Check dip progression reasonableness (no impossible overnight changes)
+  4. Cross-validate with meter_readings for overnight sales calculation
+  5. Detect overnight variances exceeding threshold from system_configurations
+  6. Calculate expected morning levels based on evening readings and known deliveries
+- **Overnight Variance Calculation**:
+  ```
+  Expected Morning Level = Evening Dip + Overnight Deliveries - Calculated Overnight Sales
+  Actual Morning Level = Current Dip Reading
+  Overnight Variance = |Expected - Actual| / Expected * 100
+  ```
+- **Auto-Validation Features**:
+  - Pre-fill expected values based on historical patterns and delivery schedules
+  - Flag readings outside 3-sigma bounds for immediate review
+  - Automatic variance investigation triggers for anomalies > 1%
+  - CEO notification for variances > 5% or repeated pattern violations
+
+##### **createEvening(Request $request)**
+- **Business Logic**: Evening reading entry with full-day reconciliation and dual-calculation validation
+- **Comprehensive Daily Validation**:
+  1. Calculate Method 1 (Physical Stock Method):
+     ```
+     Sales Volume = Morning Dip + Daily Deliveries - Evening Dip
+     ```
+  2. Calculate Method 2 (Meter Reading Method):
+     ```
+     Sales Volume = Sum(Evening Meter - Morning Meter) for all pumps
+     ```
+  3. Cross-validate both methods with variance threshold checking
+  4. Apply temperature compensation if available for accuracy enhancement
+  5. Validate against historical sales patterns for reasonableness
+  6. Generate automatic approval requests for variances exceeding thresholds
+- **FIFO Cost Integration**:
+  - Calculate weighted average cost for sales volume using active inventory layers
+  - Update tank_inventory_layers consumption tracking in FIFO sequence
+  - Generate cost_calculations entry for profitability analysis
+  - Trigger margin alerts if selling prices approach cost thresholds
+
+##### **editReading($id, Request $request)**
+- **Business Logic**: Reading modification with comprehensive audit trail and recalculation cascade
+- **Modification Impact Analysis**:
+  1. Capture original reading values for audit_logs before/after comparison
+  2. Validate modification authority (CEO/SYSTEM_ADMIN override standard restrictions)
+  3. Recalculate all dependent variance calculations and approval statuses
+  4. Update related variances table entries with new calculation results
+  5. Regenerate cost_calculations if FIFO layer consumption affected
+  6. Trigger notification to all stakeholders affected by the modification
+- **Cascade Recalculation Sequence**:
+  - Immediate: Variance recalculation for affected reading date
+  - Secondary: FIFO layer consumption updates for inventory accuracy
+  - Tertiary: Profit margin recalculation for pricing validation
+  - Final: Audit trail hash_chains update for tamper detection
+
+##### **validateReading(Request $request)**
+- **Business Logic**: Real-time reading validation with immediate feedback and correction suggestions
+- **Multi-Layer Validation Engine**:
+  1. **Physics Validation**: Volume cannot exceed tank capacity, readings must progress logically
+  2. **Historical Validation**: Compare with last 30 days patterns, flag outliers
+  3. **Cross-Reference Validation**: Verify consistency with meter readings and delivery records
+  4. **Temperature Validation**: Account for thermal expansion/contraction if sensors available
+  5. **Business Rule Validation**: Ensure compliance with operational parameters
+- **Smart Suggestion Engine**:
+  - Predict expected readings based on consumption patterns and delivery schedules
+  - Suggest corrections for common entry errors (decimal misplacement, unit confusion)
+  - Provide historical context for unusual but valid readings
+  - Offer automated acceptance for readings within normal variance bounds
+
+---
+
+### **2. DeliveryController - Delivery Recording & FIFO Layer Management**
+
+**File**: `app/Http/Controllers/DeliveryController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive delivery management with scheduling optimization and cost tracking
+- **Delivery Data Integration**:
+  1. Query deliveries table with exact column names (delivery_note_number, quantity_delivered_liters, cost_per_liter)
+  2. Join with suppliers table for supplier performance tracking
+  3. Include tank_inventory_layers created by each delivery for FIFO tracking
+  4. Calculate delivery efficiency metrics (variance between ordered and delivered quantities)
+  5. Track cost evolution and supplier pricing patterns
+  6. Monitor delivery scheduling optimization opportunities
+- **Performance Analytics**:
+  - Supplier reliability scoring (on-time delivery, quantity accuracy, quality metrics)
+  - Cost trend analysis with market price comparison
+  - Delivery frequency optimization for inventory turnover efficiency
+  - Tank utilization efficiency from delivery scheduling patterns
+
+##### **create(Request $request)**
+- **Business Logic**: New delivery recording with comprehensive validation and automatic FIFO layer creation
+- **Pre-Delivery Validation**:
+  1. Verify tank capacity availability before delivery acceptance
+  2. Validate supplier authorization and contract compliance
+  3. Check delivery scheduling against operational hours and staff availability
+  4. Confirm product type compatibility with designated tank
+  5. Validate cost_per_liter against recent market prices and supplier contracts
+- **Delivery Recording Process**:
+  1. Record delivery details with comprehensive metadata (driver, vehicle, seals, temperature)
+  2. Calculate quantity_variance_liters and variance_percentage for quality control
+  3. Create new tank_inventory_layer with FIFO sequence numbering
+  4. Update tank current_volume_liters with delivered quantity
+  5. Generate cost_calculations entry for weighted average cost updates
+  6. Log comprehensive delivery audit trail with hash_chains integrity verification
+- **Automatic FIFO Layer Creation**:
+  ```sql
+  INSERT INTO tank_inventory_layers (
+      tank_id, delivery_id, layer_sequence_number,
+      opening_quantity_liters, current_quantity_liters,
+      cost_per_liter, total_layer_cost, layer_created_at
+  ) VALUES (
+      $validatedTankId, $insertedDeliveryId,
+      $nextSequenceNumber, $deliveredQuantity,
+      $deliveredQuantity, $costPerLiter,
+      $deliveredQuantity * $costPerLiter, NOW()
+  )
+  ```
+
+##### **edit($id, Request $request)**
+- **Business Logic**: Delivery modification with FIFO layer adjustment and cost recalculation
+- **Modification Validation**:
+  1. Validate modification authority (CEO/SYSTEM_ADMIN bypass restrictions for operational emergencies)
+  2. Check impact on existing FIFO layers and consumption calculations
+  3. Verify that quantity modifications don't violate tank capacity constraints
+  4. Validate cost modifications against supplier contracts and market reasonableness
+- **FIFO Layer Adjustment Process**:
+  1. Update corresponding tank_inventory_layer with new quantities and costs
+  2. Recalculate weighted_average_cost for all subsequent transactions
+  3. Update batch_consumption records if layer partially consumed
+  4. Regenerate cost_calculations for accurate profitability tracking
+  5. Create comprehensive audit_logs entry documenting all affected records
+
+##### **receipt($id, Request $request)**
+- **Business Logic**: Digital delivery receipt generation with regulatory compliance and audit trail
+- **Receipt Generation Features**:
+  1. Generate tamper-proof PDF receipt with digital signatures
+  2. Include comprehensive delivery details (quantities, costs, quality metrics)
+  3. Integrate QR codes for mobile verification and audit trail access
+  4. Calculate environmental impact metrics (emissions, efficiency ratings)
+  5. Include photographic evidence (delivery vehicle, seals, documentation)
+- **Regulatory Compliance Integration**:
+  - Tax authority reporting format compliance
+  - Environmental regulation documentation
+  - Quality standard certification tracking
+  - Chain of custody maintenance for audit requirements
+
+##### **costAnalysis($id, Request $request)**
+- **Business Logic**: Delivery cost analysis with market comparison and profitability impact
+- **Cost Analysis Features**:
+  1. Compare delivery costs with historical supplier performance
+  2. Analyze cost impact on inventory weighted averages and profit margins
+  3. Evaluate delivery timing optimization for cost efficiency
+  4. Generate supplier performance recommendations
+  5. Calculate total cost of ownership including transportation and handling
+- **Market Intelligence Integration**:
+  - Regional price comparison with competitor analysis
+  - Seasonal pricing pattern recognition
+  - Supplier negotiation leverage calculation
+  - Optimal purchasing timing recommendations
+
+---
+
+### **3. VarianceController - Variance Detection & Resolution Management**
+
+**File**: `app/Http/Controllers/VarianceController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive variance dashboard with pattern analysis and resolution tracking
+- **Variance Data Integration**:
+  1. Query variances table with reading relationships and station context
+  2. Calculate variance significance using statistical analysis and historical baselines
+  3. Track resolution efficiency and approval turnaround times
+  4. Identify patterns suggesting systematic issues or potential fraud
+  5. Generate predictive analytics for variance prevention
+- **Variance Classification System**:
+  - **MINOR** (< 1%): Auto-approved, logged for pattern analysis
+  - **SIGNIFICANT** (1-5%): Requires management investigation and justification
+  - **MAJOR** (5-10%): Mandatory CEO approval with detailed investigation
+  - **CRITICAL** (> 10%): Immediate CEO notification, potential fraud investigation
+- **Pattern Recognition Engine**:
+  - Detect recurring variance patterns suggesting equipment issues
+  - Identify temporal patterns (specific shifts, days, operators)
+  - Flag unusual combinations (meter tampering, coordinated anomalies)
+  - Generate early warning alerts for emerging problems
+
+##### **create(Request $request)**
+- **Business Logic**: Automatic variance creation triggered by reading validation with intelligent categorization
+- **Variance Detection Algorithm**:
+  1. Calculate variance using dual-validation methodology
+  2. Apply statistical significance testing against historical baselines
+  3. Categorize variance type (STOCK_SHORTAGE, STOCK_EXCESS, METER_DISCREPANCY, CALCULATION_ERROR)
+  4. Determine severity level and automatic approval routing
+  5. Generate investigation recommendations based on variance characteristics
+- **Automatic Approval Routing**:
+  ```php
+  if ($variancePercentage <= config('fuel.auto_approve_threshold')) {
+      $approvalStatus = 'AUTO_APPROVED';
+  } elseif (in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN'])) {
+      $approvalStatus = 'CEO_AUTO_APPROVED';
+  } else {
+      $approvalStatus = 'PENDING_CEO_APPROVAL';
+      $this->triggerCeoNotification($varianceData);
+  }
+  ```
+
+##### **investigate($id, Request $request)**
+- **Business Logic**: Comprehensive variance investigation workflow with evidence collection
+- **Investigation Framework**:
+  1. Collect all related data (readings, deliveries, meter records, temperature data)
+  2. Perform forensic analysis of timing and sequence patterns
+  3. Cross-reference with staff schedules and customer activity
+  4. Generate probable cause analysis with supporting evidence
+  5. Create detailed investigation report with resolution recommendations
+- **Evidence Collection System**:
+  - Historical pattern comparison for baseline establishment
+  - Equipment performance analysis for mechanical causes
+  - Staff activity correlation for operational issues
+  - Environmental factor analysis (temperature, weather impact)
+  - Customer pattern analysis for demand validation
+
+##### **approve($id, Request $request)**
+- **Business Logic**: Variance approval workflow with comprehensive justification and audit trail
+- **CEO/SYSTEM_ADMIN Approval Process**:
+  1. Display complete variance context with investigation findings
+  2. Require approval justification selection from predefined categories
+  3. Allow override of investigation recommendations with enhanced audit trail
+  4. Generate approval notification to all stakeholders
+  5. Update variance status with timestamp and approval details
+- **Approval Impact Tracking**:
+  - Update inventory records if approval affects stock calculations
+  - Adjust FIFO layer consumption if variance impacts cost calculations
+  - Generate corrective action recommendations for prevention
+  - Create hash_chains entry for approval audit trail integrity
+
+##### **pattern($request)**
+- **Business Logic**: Advanced pattern analysis for fraud detection and operational optimization
+- **Pattern Analysis Engine**:
+  1. Statistical clustering analysis for variance pattern recognition
+  2. Temporal pattern analysis for shift-based or time-based anomalies
+  3. Staff correlation analysis for operational training needs
+  4. Equipment correlation analysis for maintenance scheduling
+  5. Predictive modeling for variance prevention strategies
+- **Machine Learning Integration**:
+  - Anomaly detection algorithms for unusual variance combinations
+  - Predictive modeling for equipment failure anticipation
+  - Behavioral analysis for staff performance optimization
+  - Seasonal adjustment algorithms for demand forecasting
+
+---
+
+### **4. CalculationController - Mathematical Validation & Dual-Verification Engine**
+
+**File**: `app/Http/Controllers/CalculationController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **validateSales(Request $request)**
+- **Business Logic**: Dual-method sales calculation with cross-verification and accuracy validation
+- **Method 1: Physical Stock Calculation**:
+  ```php
+  $physicalSales = $morningDip + $deliveriesTotal - $eveningDip;
+  ```
+- **Method 2: Meter Reading Calculation**:
+  ```php
+  $meterSales = array_sum($eveningMeters) - array_sum($morningMeters);
+  ```
+- **Cross-Verification Process**:
+  1. Calculate variance percentage between both methods
+  2. Apply statistical significance testing for variance validation
+  3. Check against historical accuracy patterns for reasonableness
+  4. Generate confidence score based on data quality and consistency
+  5. Trigger investigation workflows for variances exceeding thresholds
+
+##### **calculateFIFO(Request $request)**
+- **Business Logic**: FIFO cost calculation with layer consumption tracking and profitability analysis
+- **FIFO Consumption Algorithm**:
+  1. Query active tank_inventory_layers ordered by layer_sequence_number (oldest first)
+  2. Allocate consumption against oldest layers until quantity satisfied
+  3. Update current_quantity_liters and consumed_quantity_liters for affected layers
+  4. Mark layers as depleted when current_quantity_liters reaches zero
+  5. Calculate weighted average cost for total consumption
+- **Layer Update Process**:
+  ```php
+  foreach ($activeLayers as $layer) {
+      $consumedFromLayer = min($remainingConsumption, $layer->current_quantity_liters);
+      $totalCost += $consumedFromLayer * $layer->cost_per_liter;
+      $this->updateLayerConsumption($layer->id, $consumedFromLayer);
+      $remainingConsumption -= $consumedFromLayer;
+      if ($remainingConsumption <= 0) break;
+  }
+  ```
+
+##### **reconcileInventory(Request $request)**
+- **Business Logic**: Complete inventory reconciliation with multi-source validation
+- **Reconciliation Sources**:
+  1. Physical tank levels from dip_readings with calibration table conversion
+  2. Calculated consumption from meter_readings and sales transactions
+  3. Delivery additions from deliveries table with quantity verification
+  4. FIFO layer summation for cost-basis validation
+  5. Historical consumption patterns for reasonableness checking
+- **Validation Matrix**:
+  - Physical vs. Calculated: Tank dip changes vs. meter-based consumption
+  - Cost vs. Physical: FIFO layer totals vs. physical inventory levels
+  - Historical vs. Current: Pattern matching for operational consistency
+  - Temperature vs. Volume: Thermal compensation for accuracy
+
+##### **generateMetrics(Request $request)**
+- **Business Logic**: Comprehensive operational metrics generation with performance analytics
+- **Key Performance Indicators**:
+  - Inventory turnover rates by product type and seasonal patterns
+  - Variance frequency and resolution efficiency by station and operator
+  - Cost accuracy and margin maintenance across all operations
+  - Equipment efficiency and maintenance requirement predictions
+  - Staff performance and training requirement identification
+- **Predictive Analytics**:
+  - Demand forecasting based on historical patterns and external factors
+  - Inventory optimization recommendations for cost efficiency
+  - Delivery scheduling optimization for operational efficiency
+  - Equipment maintenance scheduling based on performance degradation
+
+---
+
+## **VIEWS & USER INTERFACE SPECIFICATIONS**
+
+### **1. readings/index.blade.php - Operational Reading Dashboard**
+
+**Design Requirements**:
+- Real-time dashboard with WebSocket updates for immediate variance alerts
+- Mobile-first responsive design optimized for tablet entry during operations
+- Color-coded status indicators (GREEN: Complete, AMBER: Partial, RED: Missing/Variance)
+- Quick-entry interface with intelligent pre-population and validation
+
+**Dashboard Features**:
+- **Morning Entry Panel**: Pre-filled with previous evening values, overnight calculation display
+- **Evening Entry Panel**: Full-day reconciliation with dual-calculation validation
+- **Variance Alert Center**: Real-time variance detection with investigation triggers
+- **Reading History Timeline**: 30-day reading pattern with anomaly highlighting
+- **Performance Metrics**: Accuracy tracking, entry timeliness, variance frequency
+
+**Smart Entry Features**:
+- Barcode scanning for tank identification and automated form population
+- Voice-to-text entry for hands-free operation during physical readings
+- GPS validation for location-based reading verification
+- Offline capability with automatic sync when connectivity restored
+
+### **2. readings/create-morning.blade.php - Morning Reading Entry Interface**
+
+**Streamlined Entry Design**:
+- **Single-screen layout** with all tanks visible simultaneously
+- **Pre-populated expected values** based on evening readings and delivery schedules
+- **Real-time validation** with immediate feedback for unusual values
+- **Progress indicator** showing completion status across all required readings
+- **Quick navigation** between tanks with keyboard shortcuts and swipe gestures
+
+**Validation Features**:
+- **Visual variance indicators** with color-coded warnings for unusual readings
+- **Historical comparison** showing 7-day reading patterns for context
+- **Temperature compensation** interface for accurate volume calculations
+- **Photo capture** capability for documentation of unusual conditions
+
+### **3. deliveries/create.blade.php - Delivery Recording Interface**
+
+**Comprehensive Delivery Entry**:
+- **Multi-step workflow** (Pre-delivery validation → During delivery → Post-delivery verification)
+- **Supplier integration** with auto-population of delivery details from purchase orders
+- **Quality control checklist** with mandatory verification points
+- **FIFO layer preview** showing impact on inventory cost structure
+- **Real-time capacity validation** preventing overfill situations
+
+**Advanced Features**:
+- **Digital signature capture** for delivery acceptance and driver verification
+- **QR code scanning** for delivery note validation and automatic data population
+- **Temperature monitoring** integration for quality assurance
+- **Photo documentation** for seal verification and delivery condition recording
+
+### **4. variances/index.blade.php - Variance Management Dashboard**
+
+**Executive Variance Overview**:
+- **Priority queue** with variance severity ranking and aging indicators
+- **Pattern analysis** visualization showing trends and recurring issues
+- **Investigation workflow** with evidence collection and resolution tracking
+- **Approval interface** optimized for CEO quick-decision making
+- **Analytics dashboard** with fraud detection and operational improvement insights
+
+**CEO Decision Interface**:
+- **One-click approval** with mandatory justification selection
+- **Detailed context panel** with all relevant data for informed decision-making
+- **Pattern recognition alerts** highlighting systematic issues requiring attention
+- **Bulk approval** capabilities for similar variance types with enhanced audit trail
+
+### **5. calculations/dashboard.blade.php - Mathematical Validation Center**
+
+**Dual-Calculation Display**:
+- **Side-by-side comparison** of physical vs. meter-based calculations
+- **Statistical confidence indicators** showing calculation reliability
+- **FIFO cost tracking** with profitability impact analysis
+- **Real-time reconciliation** status with automated validation results
+- **Performance analytics** showing calculation accuracy trends
+
+**Advanced Analytics**:
+- **Predictive modeling** dashboard showing demand forecasts and optimization opportunities
+- **Equipment performance** tracking with maintenance requirement predictions
+- **Staff performance** analytics with training and development recommendations
+- **Operational efficiency** metrics with cost reduction opportunities
+
+---
+
+## **ROUTES DEFINITION**
+
+```php
+// Reading Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/readings', [ReadingController::class, 'index'])->name('readings.index');
+    Route::get('/readings/morning/create', [ReadingController::class, 'createMorning'])->name('readings.create_morning');
+    Route::post('/readings/morning', [ReadingController::class, 'storeMorning'])->name('readings.store_morning');
+    Route::get('/readings/evening/create', [ReadingController::class, 'createEvening'])->name('readings.create_evening');
+    Route::post('/readings/evening', [ReadingController::class, 'storeEvening'])->name('readings.store_evening');
+    Route::post('/readings/validate', [ReadingController::class, 'validateReading'])->name('readings.validate');
+});
+
+// Reading Modification (CEO/SYSTEM_ADMIN Override)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/readings/{id}/edit', [ReadingController::class, 'edit'])->name('readings.edit');
+    Route::put('/readings/{id}', [ReadingController::class, 'update'])->name('readings.update');
+});
+
+// Delivery Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER,DELIVERY_SUPERVISOR'])->group(function () {
+    Route::get('/deliveries', [DeliveryController::class, 'index'])->name('deliveries.index');
+    Route::get('/deliveries/create', [DeliveryController::class, 'create'])->name('deliveries.create');
+    Route::post('/deliveries', [DeliveryController::class, 'store'])->name('deliveries.store');
+    Route::get('/deliveries/{id}/receipt', [DeliveryController::class, 'receipt'])->name('deliveries.receipt');
+    Route::get('/deliveries/{id}/cost-analysis', [DeliveryController::class, 'costAnalysis'])->name('deliveries.cost_analysis');
+});
+
+// Delivery Modification (CEO/SYSTEM_ADMIN Override)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/deliveries/{id}/edit', [DeliveryController::class, 'edit'])->name('deliveries.edit');
+    Route::put('/deliveries/{id}', [DeliveryController::class, 'update'])->name('deliveries.update');
+});
+
+// Variance Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/variances', [VarianceController::class, 'index'])->name('variances.index');
+    Route::get('/variances/{id}/investigate', [VarianceController::class, 'investigate'])->name('variances.investigate');
+    Route::get('/variances/patterns', [VarianceController::class, 'patterns'])->name('variances.patterns');
+});
+
+// Variance Approval (CEO/SYSTEM_ADMIN Authority)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::post('/variances/{id}/approve', [VarianceController::class, 'approve'])->name('variances.approve');
+    Route::post('/variances/{id}/reject', [VarianceController::class, 'reject'])->name('variances.reject');
+});
+
+// Calculation & Validation Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/calculations/dashboard', [CalculationController::class, 'dashboard'])->name('calculations.dashboard');
+    Route::post('/calculations/validate-sales', [CalculationController::class, 'validateSales'])->name('calculations.validate_sales');
+    Route::post('/calculations/fifo', [CalculationController::class, 'calculateFIFO'])->name('calculations.fifo');
+    Route::post('/calculations/reconcile', [CalculationController::class, 'reconcileInventory'])->name('calculations.reconcile');
+    Route::get('/calculations/metrics', [CalculationController::class, 'generateMetrics'])->name('calculations.metrics');
+});
+```
+
+---
+
+## **DATABASE TABLES UTILIZED**
+
+### **Primary Operational Tables:**
+- **dip_readings**: Tank level measurements with temporal tracking (tank_id, reading_date, reading_shift, dip_mm, volume_liters)
+- **meter_readings**: Pump meter progressions with tamper detection (pump_id, meter_reading, reading_timestamp)
+- **deliveries**: Supply chain integration for inventory updates (supplier_id, tank_id, quantity_delivered_liters, cost_per_liter)
+- **variances**: Variance detection and resolution tracking (reading_id, variance_percentage, approval_status)
+
+### **FIFO & Cost Management Tables:**
+- **tank_inventory_layers**: FIFO inventory management with layer tracking (tank_id, layer_sequence_number, current_quantity_liters, cost_per_liter)
+- **batch_consumption**: Detailed consumption tracking for FIFO accuracy (tank_inventory_layer_id, quantity_consumed_liters)
+- **cost_calculations**: Weighted average cost tracking and profitability analysis (tank_id, weighted_average_cost, calculation_trigger)
+
+### **Validation & Audit Tables:**
+- **audit_logs**: Comprehensive action logging for all operational entries
+- **hash_chains**: Tamper-proof integrity verification for critical data
+- **variance_investigations**: Detailed investigation tracking with evidence collection
+
+---
+
+## **INTER-MODULE DEPENDENCIES & SYSTEM INTERACTIONS**
+
+### **Upstream Dependencies:**
+- **Module 1 (Authentication)**: User role validation, session management, audit trail foundation
+- **Module 2 (Infrastructure)**: Tank specifications, calibration tables, pump configurations
+
+### **Downstream Effects:**
+
+1. **Price Management Module**: FIFO cost calculations provide basis for margin validation and pricing decisions
+2. **Approval Workflow Module**: Variance detection triggers CEO approval workflows with complete context
+3. **Reporting Module**: Operational data provides foundation for reconciliation reports and performance analytics
+4. **Notification Module**: Variance detection and missing readings trigger automated alert systems
+5. **Audit & Compliance Module**: All operational entries contribute to regulatory reporting and audit trails
+
+### **Critical Business Rules Enforced:**
+
+1. **Dual-Calculation Validation**: Every sales calculation uses both physical and meter methods with cross-verification
+2. **FIFO Layer Integrity**: Strict chronological consumption with mathematical validation
+3. **Variance Threshold Management**: Automatic escalation based on configurable thresholds
+4. **Reading Continuity**: Temporal validation ensuring logical progression of readings
+5. **CEO/SYSTEM_ADMIN Override**: Emergency entry capabilities with enhanced audit trails
+6. **Temperature Compensation**: Accurate volume calculations accounting for thermal expansion
+
+### **Data Flow Architecture:**
+
+```
+Operational Entry Flow:
+Reading Entry → Validation → Calculation → Variance Detection → Approval Routing → FIFO Update
+
+Variance Management Flow:
+Detection → Classification → Investigation → Evidence Collection → Resolution → Prevention
+
+FIFO Cost Flow:
+Delivery → Layer Creation → Consumption Allocation → Cost Calculation → Profitability Analysis
+
+Audit Trail Flow:
+Entry → Validation → Database Update → Audit Log → Hash Chain → Integrity Verification
+```
+
+---
+
+## **EXPECTED DELIVERABLES FOR MODULE 3**
+
+1. **Complete Reading Management System** with real-time validation and variance detection
+2. **Delivery Recording Interface** with FIFO layer integration and cost tracking
+3. **Variance Detection Engine** with pattern analysis and fraud prevention
+4. **Dual-Calculation Validation System** with mathematical cross-verification
+5. **FIFO Cost Management** with inventory layer tracking and profitability analysis
+6. **Mobile-Optimized Entry Interfaces** with offline capability and smart validation
+7. **Real-Time Dashboard** with operational metrics and performance analytics
+8. **Comprehensive Audit System** with forensic-level integrity verification
+9. **Pattern Recognition Engine** for fraud detection and operational optimization
+10. **Integration APIs** for equipment connectivity and automated data collection
+
+This module creates the operational heart of the fuel ERP system, where all critical data entry occurs with mathematical precision, comprehensive validation, and complete audit trail integrity while maintaining the CEO/SYSTEM_ADMIN override capabilities for operational emergencies.
+

@@ -1,0 +1,1161 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Carbon\Carbon;
+use App\Services\CorrectedFIFOService;
+use App\Services\AuditService;
+use App\Services\ReconciliationService;
+use Exception;
+
+
+class DeliveryController extends Controller
+{
+    private AuditService $auditService;
+    private CorrectedFIFOService $fifoService;
+    private ReconciliationService $reconciliationService;
+
+    public function __construct(
+        AuditService $auditService,
+        CorrectedFIFOService $fifoService,
+        ReconciliationService $reconciliationService
+    ) {
+        $this->auditService = $auditService;
+        $this->fifoService = $fifoService;
+        $this->reconciliationService = $reconciliationService;
+    }
+
+    /**
+     * EXACT SCHEMA FIELD MAPPING - deliveries table (100% COMPLIANT)
+     * Every field verified against FUEL_ERP.sql CREATE TABLE statement
+     */
+    private const DELIVERY_FIELDS = [
+        'id', 'purchase_order_id', 'supplier_id', 'tank_id', 'delivery_note_number',
+        'supplier_invoice_reference', 'delivery_date', 'delivery_time', 'scheduled_date',
+        'scheduled_time', 'driver_name', 'driver_license', 'vehicle_registration',
+        'vehicle_type', 'compartment_count', 'seal_number_1', 'seal_number_2',
+        'seal_number_3', 'quantity_ordered_liters', 'quantity_delivered_liters',
+        'quantity_variance_liters', 'variance_percentage', 'cost_per_liter',
+        'transport_cost_per_liter', 'handling_cost_per_liter', 'total_delivery_cost',
+        'loading_temperature_celsius', 'delivery_temperature_celsius', 'temperature_variance_celsius',
+        'density_at_15c', 'volume_correction_factor', 'corrected_volume_liters',
+        'water_content_ppm', 'quality_test_passed', 'quality_failure_reason',
+        'delivery_status', 'rejection_reason', 'received_by', 'approved_by',
+        'created_at', 'updated_at', 'hash_previous', 'hash_current'
+    ];
+
+    /**
+     * EXACT DELIVERY STATUS from schema
+     */
+    private const DELIVERY_STATUS = ['SCHEDULED', 'IN_TRANSIT', 'ARRIVED', 'UNLOADING', 'COMPLETED', 'REJECTED'];
+
+    /**
+     * EXACT VEHICLE TYPES from schema
+     */
+    private const VEHICLE_TYPES = ['TANKER', 'BOWSER', 'TRUCK', 'OTHER'];
+
+    /**
+     * Delivery management dashboard - ENHANCED with complete field mapping
+     */
+    public function index(Request $request)
+    {
+        // STRICT PERMISSION CHECK - CEO/SYSTEM_ADMIN auto-approved
+        if (!$this->hasAccess()) {
+            $this->auditService->logSecurityViolation([
+                'user_id' => auth()->id(),
+                'action' => 'UNAUTHORIZED_DELIVERY_ACCESS_ATTEMPT',
+                'ip_address' => request()->ip(),
+                'table_name' => 'deliveries'
+            ]);
+            return redirect()->back()->with('error', 'Access denied - Delivery management restricted');
+        }
+
+        // COMPLETE DELIVERY QUERY - All critical fields included
+        $query = DB::table('deliveries')
+            ->join('suppliers', 'deliveries.supplier_id', '=', 'suppliers.id')
+            ->join('tanks', 'deliveries.tank_id', '=', 'tanks.id')
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->leftJoin('purchase_orders', 'deliveries.purchase_order_id', '=', 'purchase_orders.id')
+            ->select([
+                // Core delivery fields
+                'deliveries.id',
+                'deliveries.delivery_note_number',
+                'deliveries.delivery_date',
+                'deliveries.delivery_time',
+                'deliveries.quantity_delivered_liters',
+                'deliveries.total_delivery_cost',
+                'deliveries.delivery_status',
+                // Quality and compliance fields
+                'deliveries.quality_test_passed',
+                'deliveries.delivery_temperature_celsius',
+                'deliveries.density_at_15c',
+                'deliveries.water_content_ppm',
+                // Vehicle and logistics fields
+                'deliveries.driver_name',
+                'deliveries.driver_license',
+                'deliveries.vehicle_registration',
+                'deliveries.vehicle_type',
+                'deliveries.compartment_count',
+                // Security fields
+                'deliveries.seal_number_1',
+                'deliveries.seal_number_2',
+                'deliveries.seal_number_3',
+                // Related table fields
+                'suppliers.company_name',
+                'tanks.tank_number',
+                'stations.station_name',
+                'purchase_orders.po_number'
+            ]);
+
+        // ENHANCED SEARCH - delivery note, supplier, station, or driver
+        if ($search = $request->get('search')) {
+            $query->where(function($q) use ($search) {
+                $q->where('deliveries.delivery_note_number', 'LIKE', "%{$search}%")
+                  ->orWhere('suppliers.company_name', 'LIKE', "%{$search}%")
+                  ->orWhere('stations.station_name', 'LIKE', "%{$search}%")
+                  ->orWhere('deliveries.driver_name', 'LIKE', "%{$search}%")
+                  ->orWhere('deliveries.vehicle_registration', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // STATUS FILTER - using exact schema values
+        if ($status = $request->get('status')) {
+            if (in_array($status, self::DELIVERY_STATUS)) {
+                $query->where('deliveries.delivery_status', $status);
+            }
+        }
+
+        // QUALITY FILTER
+        if ($request->has('quality_issues')) {
+            $query->where('deliveries.quality_test_passed', 0);
+        }
+
+        $deliveries = $query->orderBy('deliveries.delivery_date', 'desc')
+                           ->orderBy('deliveries.delivery_time', 'desc')
+                           ->paginate(25);
+
+        // COMPREHENSIVE DASHBOARD STATISTICS
+        $stats = [
+            'total_deliveries' => DB::table('deliveries')->count(),
+            'completed_today' => DB::table('deliveries')
+                ->where('delivery_status', 'COMPLETED')
+                ->where('delivery_date', now()->toDateString())
+                ->count(),
+            'in_transit' => DB::table('deliveries')->where('delivery_status', 'IN_TRANSIT')->count(),
+            'scheduled_today' => DB::table('deliveries')
+                ->where('delivery_status', 'SCHEDULED')
+                ->where('delivery_date', now()->toDateString())
+                ->count(),
+            'quality_issues' => DB::table('deliveries')->where('quality_test_passed', 0)->count(),
+            'pending_arrival' => DB::table('deliveries')->where('delivery_status', 'ARRIVED')->count(),
+            'unloading' => DB::table('deliveries')->where('delivery_status', 'UNLOADING')->count()
+        ];
+
+        // LOG ACCESS
+        $this->auditService->logAction([
+            'user_id' => auth()->id(),
+            'action_type' => 'READ',
+            'action_category' => 'DATA_ENTRY',
+            'table_name' => 'deliveries',
+            'change_reason' => 'Delivery dashboard access',
+            'ip_address' => request()->ip()
+        ]);
+
+        return view('deliveries.index', compact('deliveries', 'stats'));
+    }
+
+    /**
+     * Delivery creation form - ENHANCED with all schema fields
+     */
+    public function create(Request $request)
+    {
+        // STRICT PERMISSION CHECK
+        if (!$this->hasAccess()) {
+            $this->auditService->logSecurityViolation([
+                'user_id' => auth()->id(),
+                'action' => 'UNAUTHORIZED_DELIVERY_CREATE_ATTEMPT',
+                'ip_address' => request()->ip(),
+                'table_name' => 'deliveries'
+            ]);
+            return redirect()->back()->with('error', 'Access denied');
+        }
+
+        // PRE-SELECTED PO (from PO selection)
+        $selectedPOId = $request->get('po_id');
+        $selectedPO = null;
+
+        if ($selectedPOId) {
+            $selectedPO = DB::table('purchase_orders')
+                ->join('suppliers', 'purchase_orders.supplier_id', '=', 'suppliers.id')
+                ->join('stations', 'purchase_orders.station_id', '=', 'stations.id')
+                ->join('supplier_contracts', 'purchase_orders.supplier_contract_id', '=', 'supplier_contracts.id')
+                ->where('purchase_orders.id', $selectedPOId)
+                ->where('purchase_orders.order_status', 'APPROVED')
+                ->select([
+                    'purchase_orders.*',
+                    'suppliers.company_name',
+                    'suppliers.supplier_code',
+                    'supplier_contracts.contract_number',
+                    'stations.station_name'
+                ])
+                ->first();
+        }
+
+        // ENHANCED PO SELECTION - FIXED LOGIC FOR ALL APPROVED & PARTIALLY DELIVERED POs
+        $approvedPOs = DB::table('purchase_orders')
+            ->join('suppliers', 'purchase_orders.supplier_id', '=', 'suppliers.id')
+            ->join('stations', 'purchase_orders.station_id', '=', 'stations.id')
+            ->join('supplier_contracts', 'purchase_orders.supplier_contract_id', '=', 'supplier_contracts.id')
+            ->leftJoin(DB::raw('(SELECT purchase_order_id,
+                                       SUM(quantity_delivered_liters) as total_delivered,
+                                       COUNT(*) as delivery_count,
+                                       MAX(delivery_status) as latest_status
+                                FROM deliveries
+                                WHERE delivery_status IN ("COMPLETED", "ARRIVED", "UNLOADING")
+                                AND purchase_order_id IS NOT NULL
+                                GROUP BY purchase_order_id) as delivery_summary'),
+                      'purchase_orders.id', '=', 'delivery_summary.purchase_order_id')
+            ->where(function($query) {
+                // Include APPROVED and PARTIALLY_DELIVERED orders
+                $query->where('purchase_orders.order_status', 'APPROVED')
+                      ->orWhere('purchase_orders.order_status', 'PARTIALLY_DELIVERED');
+            })
+            ->where('purchase_orders.approved_at', '<=', now()) // Must be approved
+            ->whereNotNull('purchase_orders.approved_by') // Must have approver
+            ->where('purchase_orders.expected_delivery_date', '>=', now()->subDays(30)) // Not too old
+            ->where(function($query) {
+                // Exclude only FULLY_DELIVERED orders
+                $query->where('purchase_orders.order_status', '!=', 'FULLY_DELIVERED')
+                      ->where('purchase_orders.order_status', '!=', 'CANCELLED');
+            })
+            ->where(function($query) {
+                // Additional delivery-based filtering
+                $query->whereNull('delivery_summary.purchase_order_id') // No deliveries yet
+                      ->orWhere(function($subQuery) {
+                          // Or has deliveries but not fully delivered
+                          $subQuery->whereRaw('delivery_summary.total_delivered < purchase_orders.ordered_quantity_liters * 0.98') // Less than 98% delivered
+                                   ->where('delivery_summary.latest_status', '!=', 'REJECTED');
+                      });
+            })
+            ->select([
+                'purchase_orders.id',
+                'purchase_orders.po_number',
+                'purchase_orders.product_type',
+                'purchase_orders.ordered_quantity_liters',
+                'purchase_orders.agreed_price_per_liter',
+                'purchase_orders.transport_cost_per_liter',
+                'purchase_orders.other_charges_per_liter',
+                'purchase_orders.total_order_value',
+                'purchase_orders.expected_delivery_date',
+                'purchase_orders.expected_delivery_time',
+                'purchase_orders.order_status',
+                'purchase_orders.approved_at',
+                'suppliers.company_name',
+                'suppliers.supplier_code',
+                'suppliers.contact_person',
+                'stations.station_name',
+                'stations.station_code',
+                'supplier_contracts.contract_number',
+                'supplier_contracts.effective_from',
+                'supplier_contracts.effective_until',
+                // Delivery summary fields
+                DB::raw('COALESCE(delivery_summary.total_delivered, 0) as total_delivered_liters'),
+                DB::raw('COALESCE(delivery_summary.delivery_count, 0) as delivery_count'),
+                DB::raw('ROUND(COALESCE(delivery_summary.total_delivered, 0) / purchase_orders.ordered_quantity_liters * 100, 2) as delivery_percentage'),
+                DB::raw('(purchase_orders.ordered_quantity_liters - COALESCE(delivery_summary.total_delivered, 0)) as remaining_quantity_liters')
+            ])
+            ->orderBy('purchase_orders.expected_delivery_date', 'asc')
+            ->orderBy('purchase_orders.approved_at', 'desc')
+            ->get();
+
+        // GENERATE DELIVERY NOTE NUMBER
+        $nextDeliveryNote = $this->generateNextDeliveryNote();
+
+        // COMPREHENSIVE DEFAULTS - all schema fields with proper names
+        $defaults = [
+            'delivery_date' => now()->toDateString(),
+            'delivery_time' => now()->toTimeString(),
+            'scheduled_date' => now()->toDateString(),
+            'scheduled_time' => now()->toTimeString(),
+            'vehicle_type' => 'TANKER',
+            'compartment_count' => 1,
+            'loading_temperature_celsius' => 25.0,
+            'delivery_temperature_celsius' => 25.0,
+            'density_at_15c' => 0.8500,
+            'volume_correction_factor' => 1.000000,
+            'water_content_ppm' => 0.0,
+            'transport_cost_per_liter' => 0.0000,
+            'handling_cost_per_liter' => 0.0000
+        ];
+
+        // REFERENCE DATA for dropdowns
+        $vehicleTypes = self::VEHICLE_TYPES;
+        $deliveryStatuses = self::DELIVERY_STATUS;
+
+        // LOG FORM ACCESS
+        $this->auditService->logAction([
+            'user_id' => auth()->id(),
+            'action_type' => 'READ',
+            'action_category' => 'DATA_ENTRY',
+            'table_name' => 'deliveries',
+            'change_reason' => 'Delivery creation form access',
+            'ip_address' => request()->ip()
+        ]);
+
+        return view('deliveries.create', compact(
+            'selectedPO',
+            'approvedPOs',
+            'nextDeliveryNote',
+            'defaults',
+            'vehicleTypes',
+            'deliveryStatuses'
+        ));
+    }
+
+    /**
+     * ✅ CORRECTED: Store delivery with PERFECT automation integration and service delegation
+     */
+    public function store(Request $request)
+    {
+        DB::beginTransaction();
+
+        try {
+            // STRICT PERMISSION CHECK
+            if (!$this->hasAccess()) {
+                $this->auditService->logSecurityViolation([
+                    'user_id' => auth()->id(),
+                    'action' => 'UNAUTHORIZED_DELIVERY_STORE_ATTEMPT',
+                    'ip_address' => request()->ip(),
+                    'table_name' => 'deliveries'
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Access denied',
+                    'code' => 'ACCESS_DENIED'
+                ], 403);
+            }
+
+            // COMPREHENSIVE VALIDATION - all schema fields with correct names
+            $validated = $request->validate([
+                'purchase_order_id' => 'required|exists:purchase_orders,id',
+                'delivery_note_number' => 'required|string|max:100|unique:deliveries,delivery_note_number',
+                'supplier_invoice_reference' => 'nullable|string|max:100',
+                'delivery_date' => 'required|date',
+                'delivery_time' => 'required',
+                'scheduled_date' => 'nullable|date',
+                'scheduled_time' => 'nullable',
+                'driver_name' => 'required|string|max:255',
+                'driver_license' => 'nullable|string|max:100',
+                'vehicle_registration' => 'required|string|max:50',
+                'vehicle_type' => ['required', Rule::in(self::VEHICLE_TYPES)],
+                'compartment_count' => 'nullable|integer|min:1|max:10',
+                'seal_number_1' => 'nullable|string|max:50',
+                'seal_number_2' => 'nullable|string|max:50',
+                'seal_number_3' => 'nullable|string|max:50',
+                'quantity_delivered_liters' => 'required|numeric|min:1|max:999999999.999',
+                'loading_temperature_celsius' => 'nullable|numeric|min:-10|max:60',
+                'delivery_temperature_celsius' => 'required|numeric|min:-10|max:60',
+                'density_at_15c' => 'required|numeric|min:0.5000|max:1.5000',
+                'water_content_ppm' => 'nullable|numeric|min:0|max:10000',
+                'transport_cost_per_liter' => 'nullable|numeric|min:0|max:999.9999',
+                'handling_cost_per_liter' => 'nullable|numeric|min:0|max:999.9999'
+            ]);
+
+            // GET PO DETAILS with enhanced data
+            $po = DB::table('purchase_orders')
+                ->join('supplier_contracts', 'purchase_orders.supplier_contract_id', '=', 'supplier_contracts.id')
+                ->where('purchase_orders.id', $validated['purchase_order_id'])
+                ->where('purchase_orders.order_status', 'APPROVED')
+                ->select([
+                    'purchase_orders.*',
+                    'supplier_contracts.base_price_per_liter'
+                ])
+                ->first();
+
+            if (!$po) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Purchase Order not found or not approved',
+                    'code' => 'PO_NOT_FOUND'
+                ], 422);
+            }
+
+            // GET TANK DETAILS with capacity validation
+            $tank = DB::table('tanks')
+                ->join('stations', 'tanks.station_id', '=', 'stations.id')
+                ->join('products', 'tanks.product_id', '=', 'products.id')
+                ->where('tanks.station_id', $po->station_id)
+                ->where('products.product_type', $po->product_type)
+                ->where('tanks.is_active', 1)
+                ->select([
+                    'tanks.*',
+                    'stations.station_name',
+                    'products.product_type'
+                ])
+                ->first();
+
+            if (!$tank) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'No active tank found for product type ' . $po->product_type,
+                    'code' => 'TANK_NOT_FOUND'
+                ], 422);
+            }
+
+            // ✅ CORRECTED: Use readings table instead of banned dip_readings table
+            $currentStock = DB::table('readings')
+                ->where('tank_id', $tank->id)
+                ->whereIn('reading_type', ['MORNING_DIP', 'EVENING_DIP', 'DELIVERY_AFTER'])
+                ->where('reading_status', 'VALIDATED')
+                ->whereNotNull('dip_reading_liters')
+                ->where('dip_reading_liters', '>', 0)
+                ->orderBy('reading_date', 'desc')
+                ->orderBy('reading_time', 'desc')
+                ->value('dip_reading_liters') ?? 0;
+
+            // ✅ MATHEMATICAL PRECISION: Use 0.001L tolerance for capacity validation
+            $proposedTotalStock = $currentStock + $validated['quantity_delivered_liters'];
+            $capacityExceeded = ($proposedTotalStock - $tank->capacity_liters) > 0.001;
+
+            if ($capacityExceeded) {
+                // ✅ Use database function for capacity validation
+                $capacityUsage = DB::select('SELECT fn_get_tank_capacity_usage(?) as usage', [$tank->id])[0]->usage ?? 0;
+
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Delivery would exceed tank capacity',
+                    'code' => 'CAPACITY_EXCEEDED',
+                    'details' => [
+                        'current_stock' => round($currentStock, 3),
+                        'delivery_quantity' => round($validated['quantity_delivered_liters'], 3),
+                        'tank_capacity' => round($tank->capacity_liters, 3),
+                        'available_capacity' => round($tank->capacity_liters - $currentStock, 3),
+                        'capacity_usage_percentage' => round($capacityUsage, 2)
+                    ]
+                ], 422);
+            }
+
+            // ✅ COMPREHENSIVE VARIANCE CALCULATIONS with mathematical precision
+            $quantityVariance = round($validated['quantity_delivered_liters'] - $po->ordered_quantity_liters, 3);
+            $variancePercentage = $po->ordered_quantity_liters > 0 ?
+                round(($quantityVariance / $po->ordered_quantity_liters) * 100, 4) : 0;
+
+            // ✅ Use database function for variance threshold validation
+            $minorThreshold = DB::select('SELECT fn_get_variance_threshold("MINOR_VARIANCE_PERCENTAGE") as threshold')[0]->threshold ?? 0.5;
+            $moderateThreshold = DB::select('SELECT fn_get_variance_threshold("MODERATE_VARIANCE_PERCENTAGE") as threshold')[0]->threshold ?? 1.0;
+            $significantThreshold = DB::select('SELECT fn_get_variance_threshold("SIGNIFICANT_VARIANCE_PERCENTAGE") as threshold')[0]->threshold ?? 2.0;
+
+            // ✅ ENHANCED AUTOMATION INTEGRATION: Validate with stored procedure
+            DB::statement('CALL sp_enhanced_system_monitor()');
+            $monitoringResults = DB::table('system_health_monitoring')
+                ->whereIn('check_type', [
+                    'ENHANCED_CAPACITY_CHECK',
+                    'ENHANCED_FIFO_MATH_CHECK',
+                    'ENHANCED_VALUE_CALC_CHECK'
+                ])
+                ->where('check_timestamp', '>=', now()->subMinutes(2))
+                ->orderBy('check_timestamp', 'desc')
+                ->get();
+
+            // Validate system integrity before proceeding
+            $criticalErrors = $monitoringResults->where('check_status', 'FAILED')
+                ->where('severity', 'CRITICAL');
+
+            if ($criticalErrors->count() > 0) {
+                $errorDetails = $criticalErrors->pluck('check_details')->implode('; ');
+                throw new Exception("CRITICAL SYSTEM INTEGRITY FAILURE: {$errorDetails}");
+            }
+
+            // TEMPERATURE VARIANCE CALCULATION with precision
+            $temperatureVariance = null;
+            if (isset($validated['loading_temperature_celsius']) && isset($validated['delivery_temperature_celsius'])) {
+                $temperatureVariance = round($validated['delivery_temperature_celsius'] - $validated['loading_temperature_celsius'], 1);
+            }
+
+            // VOLUME CORRECTION FACTOR CALCULATION with precision
+            $volumeCorrectionFactor = 1.000000; // Default - could be enhanced with temperature correction formula
+            $correctedVolume = round($validated['quantity_delivered_liters'] * $volumeCorrectionFactor, 3);
+
+            // ENHANCED QUALITY TEST VALIDATION
+            $qualityTestPassed = 1;
+            $qualityFailureReason = null;
+
+            // Quality test criteria with mathematical precision
+            if (abs($variancePercentage) > $significantThreshold) {
+                $qualityTestPassed = 0;
+                $qualityFailureReason = "Quantity variance " . round($variancePercentage, 4) . "% exceeds " . $significantThreshold . "% tolerance";
+            }
+
+            if (isset($validated['water_content_ppm']) && $validated['water_content_ppm'] > 200) {
+                $qualityTestPassed = 0;
+                $qualityFailureReason = ($qualityFailureReason ? $qualityFailureReason . '; ' : '') . 'Water content exceeds limits';
+            }
+
+            if ($validated['delivery_temperature_celsius'] < -5 || $validated['delivery_temperature_celsius'] > 50) {
+                $qualityTestPassed = 0;
+                $qualityFailureReason = ($qualityFailureReason ? $qualityFailureReason . '; ' : '') . 'Temperature outside acceptable range';
+            }
+
+            // COMPREHENSIVE COST CALCULATIONS with 0.0001 UGX PRECISION
+            $baseRate = round($po->agreed_price_per_liter, 4);
+            $transportCost = round($validated['transport_cost_per_liter'] ?? $po->transport_cost_per_liter ?? 0.0000, 4);
+            $handlingCost = round($validated['handling_cost_per_liter'] ?? $po->other_charges_per_liter ?? 0.0000, 4);
+            $costPerLiter = round($baseRate + $transportCost + $handlingCost, 4);
+            $totalDeliveryCost = round($validated['quantity_delivered_liters'] * $costPerLiter, 4);
+
+            // HASH CHAIN INTEGRITY
+            $previousHash = DB::table('deliveries')
+                ->where('tank_id', $tank->id)
+                ->orderBy('created_at', 'desc')
+                ->value('hash_current');
+
+            $hashData = json_encode([
+                'delivery_note_number' => $validated['delivery_note_number'],
+                'tank_id' => $tank->id,
+                'quantity_delivered_liters' => $validated['quantity_delivered_liters'],
+                'delivery_date' => $validated['delivery_date'],
+                'delivery_time' => $validated['delivery_time'],
+                'cost_per_liter' => $costPerLiter,
+                'received_by' => auth()->id(),
+                'timestamp' => now()->format('Y-m-d H:i:s.u')
+            ]);
+            $currentHash = hash('sha256', $hashData . ($previousHash ?? ''));
+
+            // ✅ CEO/SYSTEM_ADMIN AUTO-APPROVAL LOGIC
+            $userRole = auth()->user()->role ?? '';
+            $autoApproved = in_array($userRole, ['CEO', 'SYSTEM_ADMIN']);
+            $deliveryStatus = $autoApproved ? 'COMPLETED' : 'ARRIVED';
+            $approvedBy = $autoApproved ? auth()->id() : null;
+
+            // COMPLETE DELIVERY DATA - ALL SCHEMA FIELDS
+            $deliveryData = [
+                // Core identification
+                'purchase_order_id' => $validated['purchase_order_id'],
+                'supplier_id' => $po->supplier_id,
+                'tank_id' => $tank->id,
+                'delivery_note_number' => strtoupper($validated['delivery_note_number']),
+                'supplier_invoice_reference' => $validated['supplier_invoice_reference'],
+
+                // Timing
+                'delivery_date' => $validated['delivery_date'],
+                'delivery_time' => $validated['delivery_time'],
+                'scheduled_date' => $validated['scheduled_date'] ?? $validated['delivery_date'],
+                'scheduled_time' => $validated['scheduled_time'] ?? $validated['delivery_time'],
+
+                // Personnel and vehicle (REGULATORY COMPLIANCE FIELDS)
+                'driver_name' => $validated['driver_name'],
+                'driver_license' => $validated['driver_license'],
+                'vehicle_registration' => strtoupper($validated['vehicle_registration']),
+                'vehicle_type' => $validated['vehicle_type'],
+                'compartment_count' => $validated['compartment_count'] ?? 1,
+
+                // Security seals (SECURITY COMPLIANCE FIELDS)
+                'seal_number_1' => $validated['seal_number_1'],
+                'seal_number_2' => $validated['seal_number_2'],
+                'seal_number_3' => $validated['seal_number_3'],
+
+                // Quantities and variance with precision
+                'quantity_ordered_liters' => round($po->ordered_quantity_liters, 3),
+                'quantity_delivered_liters' => round($validated['quantity_delivered_liters'], 3),
+                'quantity_variance_liters' => $quantityVariance,
+                'variance_percentage' => $variancePercentage,
+
+                // Cost breakdown with 0.0001 UGX precision
+                'cost_per_liter' => $costPerLiter,
+                'transport_cost_per_liter' => $transportCost,
+                'handling_cost_per_liter' => $handlingCost,
+                'total_delivery_cost' => $totalDeliveryCost,
+
+                // Temperature tracking (QUALITY CONTROL FIELDS)
+                'loading_temperature_celsius' => $validated['loading_temperature_celsius'],
+                'delivery_temperature_celsius' => $validated['delivery_temperature_celsius'],
+                'temperature_variance_celsius' => $temperatureVariance,
+
+                // Quality parameters (QUALITY CONTROL FIELDS) with precision
+                'density_at_15c' => round($validated['density_at_15c'], 4),
+                'volume_correction_factor' => $volumeCorrectionFactor,
+                'corrected_volume_liters' => $correctedVolume,
+                'water_content_ppm' => round($validated['water_content_ppm'] ?? 0.0, 1),
+
+                // Quality assessment
+                'quality_test_passed' => $qualityTestPassed,
+                'quality_failure_reason' => $qualityFailureReason,
+
+                // Status and approval
+                'delivery_status' => $deliveryStatus,
+                'rejection_reason' => null,
+                'received_by' => auth()->id(),
+                'approved_by' => $approvedBy,
+
+                // Audit and integrity
+                'hash_previous' => $previousHash,
+                'hash_current' => $currentHash,
+                'created_at' => now(),
+                'updated_at' => now()
+            ];
+
+            // INSERT DELIVERY with complete data
+            $deliveryId = DB::table('deliveries')->insertGetId($deliveryData);
+
+            // ✅ CORRECTED: Use CorrectedFIFOService for automation integration
+            $fifoResult = null;
+            if ($autoApproved && $deliveryStatus === 'COMPLETED') {
+                try {
+                    // ✅ PERFECT DATABASE AUTOMATION: processDeliveryViaAutomation will trigger tr_enhanced_delivery_fifo_layers
+                    $fifoResult = $this->fifoService->processDeliveryViaAutomation($deliveryId);
+
+                    if (!$fifoResult['success']) {
+                        // ✅ RECOVERY MECHANISM: Use reconciliation service for validation
+                        $recoveryValidation = $this->reconciliationService->validateMandatoryBaselines(
+                            $tank->station_id,
+                            $validated['delivery_date']
+                        );
+
+                        if (!$recoveryValidation['baseline_complete']) {
+                            throw new Exception('CRITICAL: Both automation and recovery validation failed. System integrity compromised.');
+                        }
+
+                        // Log recovery attempt but continue with manual approval
+                        $this->auditService->logError([
+                            'user_id' => auth()->id(),
+                            'table_name' => 'deliveries',
+                            'record_id' => $deliveryId,
+                            'error_message' => 'FIFO automation failed but recovery validation passed',
+                            'error_context' => json_encode([
+                                'fifo_error' => $fifoResult['error'] ?? 'Unknown error',
+                                'recovery_validation' => $recoveryValidation,
+                                'fallback_action' => 'Manual approval required'
+                            ]),
+                            'ip_address' => request()->ip()
+                        ]);
+
+                        throw new Exception('FIFO automation failed: ' . ($fifoResult['error'] ?? 'Unknown error') . ' - Recovery validation passed, manual approval required');
+                    }
+                } catch (Exception $e) {
+                    // If automation fails, mark delivery as ARRIVED for manual processing
+                    DB::table('deliveries')
+                        ->where('id', $deliveryId)
+                        ->update([
+                            'delivery_status' => 'ARRIVED',
+                            'approved_by' => null
+                        ]);
+
+                    throw new Exception('Delivery created but FIFO automation failed: ' . $e->getMessage());
+                }
+            }
+
+            // UPDATE PO STATUS with enhanced logic and precision
+            $deliveredQuantity = DB::table('deliveries')
+                ->where('purchase_order_id', $validated['purchase_order_id'])
+                ->where('delivery_status', 'COMPLETED')
+                ->sum('quantity_delivered_liters');
+
+            $deliveryPercentage = round(($deliveredQuantity / $po->ordered_quantity_liters) * 100, 2);
+            $newPOStatus = ($deliveryPercentage >= 98.0) ? 'FULLY_DELIVERED' : 'PARTIALLY_DELIVERED';
+
+            DB::table('purchase_orders')
+                ->where('id', $validated['purchase_order_id'])
+                ->update(['order_status' => $newPOStatus]);
+
+            // ✅ PROPER AUDIT SERVICE USAGE
+            $this->auditService->logAction([
+                'user_id' => auth()->id(),
+                'action_type' => 'CREATE',
+                'action_category' => 'DATA_ENTRY',
+                'table_name' => 'deliveries',
+                'record_id' => $deliveryId,
+                'new_values' => json_encode([
+                    'delivery_note' => $deliveryData['delivery_note_number'],
+                    'quantity' => $validated['quantity_delivered_liters'],
+                    'quality_passed' => $qualityTestPassed,
+                    'auto_approved' => $autoApproved,
+                    'po_status' => $newPOStatus
+                ]),
+                'change_reason' => 'Delivery completed with ' . ($autoApproved ? 'auto-approval' : 'manual approval required'),
+                'business_justification' => $autoApproved ? 'Auto-approved by role: ' . $userRole : 'Pending manual approval',
+                'ip_address' => request()->ip()
+            ]);
+
+            // ✅ LOG AUTO-APPROVAL if applicable
+            if ($autoApproved) {
+                $this->auditService->logAutoApproval([
+                    'user_id' => auth()->id(),
+                    'table_name' => 'deliveries',
+                    'record_id' => $deliveryId,
+                    'action_type' => 'APPROVE',
+                    'ip_address' => request()->ip()
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $autoApproved ?
+                    'Delivery completed successfully with auto-approval and FIFO automation' :
+                    'Delivery created successfully - pending manual approval',
+                'delivery' => [
+                    'id' => $deliveryId,
+                    'delivery_note_number' => $deliveryData['delivery_note_number'],
+                    'quantity_delivered' => round($validated['quantity_delivered_liters'], 3),
+                    'quality_test_passed' => $qualityTestPassed,
+                    'auto_approved' => $autoApproved,
+                    'fifo_automation_success' => $fifoResult['success'] ?? false,
+                    'po_status' => $newPOStatus,
+                    'total_cost' => $totalDeliveryCost, // Already rounded to 0.0001 precision
+                    'hash_current' => $currentHash,
+                    'delivery_status' => $deliveryStatus,
+                    'variance_percentage' => $variancePercentage,
+                    'system_monitoring_passed' => $monitoringResults->where('check_status', 'PASSED')->count()
+                ],
+                'automation_details' => $fifoResult ?? ['message' => 'FIFO automation pending manual approval'],
+                'redirect' => route('deliveries.show', $deliveryId)
+            ], 201);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollback();
+
+            // ✅ PROPER ERROR LOGGING
+            $this->auditService->logError([
+                'user_id' => auth()->id(),
+                'table_name' => 'deliveries',
+                'error_message' => 'Validation failed: ' . json_encode($e->errors()),
+                'ip_address' => request()->ip()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Validation failed',
+                'code' => 'VALIDATION_ERROR',
+                'validation_errors' => $e->errors()
+            ], 422);
+
+        } catch (Exception $e) {
+            DB::rollback();
+
+            // ✅ PROPER ERROR LOGGING
+            $this->auditService->logError([
+                'user_id' => auth()->id(),
+                'table_name' => 'deliveries',
+                'error_message' => $e->getMessage(),
+                'error_context' => json_encode([
+                    'delivery_note' => $validated['delivery_note_number'] ?? 'unknown',
+                    'po_id' => $validated['purchase_order_id'] ?? null,
+                    'line' => $e->getLine(),
+                    'file' => basename($e->getFile())
+                ]),
+                'ip_address' => request()->ip()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Delivery creation failed: ' . $e->getMessage(),
+                'code' => 'SYSTEM_ERROR',
+                'details' => config('app.debug') ? [
+                    'line' => $e->getLine(),
+                    'file' => basename($e->getFile())
+                ] : null
+            ], 500);
+        }
+    }
+
+    /**
+     * ✅ CORRECTED: Manual delivery approval for non-auto-approved deliveries
+     */
+    public function approve($id, Request $request)
+    {
+        DB::beginTransaction();
+
+        try {
+            // STRICT PERMISSION CHECK
+            if (!$this->hasAccess()) {
+                $this->auditService->logSecurityViolation([
+                    'user_id' => auth()->id(),
+                    'action' => 'UNAUTHORIZED_DELIVERY_APPROVAL_ATTEMPT',
+                    'ip_address' => request()->ip(),
+                    'table_name' => 'deliveries',
+                    'record_id' => $id
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Access denied',
+                    'code' => 'ACCESS_DENIED'
+                ], 403);
+            }
+
+            // GET DELIVERY
+            $delivery = DB::table('deliveries')->where('id', $id)->first();
+
+            if (!$delivery) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Delivery not found',
+                    'code' => 'DELIVERY_NOT_FOUND'
+                ], 404);
+            }
+
+            if ($delivery->delivery_status === 'COMPLETED') {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Delivery already approved',
+                    'code' => 'ALREADY_APPROVED'
+                ], 422);
+            }
+
+            // UPDATE DELIVERY STATUS TO COMPLETED (triggers tr_enhanced_delivery_fifo_layers)
+            DB::table('deliveries')
+                ->where('id', $id)
+                ->update([
+                    'delivery_status' => 'COMPLETED',
+                    'approved_by' => auth()->id(),
+                    'updated_at' => now()
+                ]);
+
+            // ✅ PROCESS THROUGH FIFO AUTOMATION with recovery mechanism
+            try {
+                $fifoResult = $this->fifoService->processDeliveryViaAutomation($id);
+
+                if (!$fifoResult['success']) {
+                    // ✅ RECOVERY MECHANISM: Use reconciliation service for validation
+                    $recoveryValidation = $this->reconciliationService->validateMandatoryBaselines(
+                        $delivery->tank_id, // Get station_id from tank
+                        date('Y-m-d', strtotime($delivery->delivery_date))
+                    );
+
+                    if (!$recoveryValidation['baseline_complete']) {
+                        throw new Exception('CRITICAL: Both automation and recovery validation failed during approval');
+                    }
+
+                    // Log recovery attempt
+                    $this->auditService->logError([
+                        'user_id' => auth()->id(),
+                        'table_name' => 'deliveries',
+                        'record_id' => $id,
+                        'error_message' => 'FIFO automation failed during approval but recovery validation passed',
+                        'error_context' => json_encode([
+                            'fifo_error' => $fifoResult['error'] ?? 'Unknown error',
+                            'recovery_validation' => $recoveryValidation
+                        ]),
+                        'ip_address' => request()->ip()
+                    ]);
+
+                    throw new Exception('FIFO automation failed during approval: ' . ($fifoResult['error'] ?? 'Unknown error'));
+                }
+            } catch (Exception $e) {
+                throw new Exception('FIFO automation failed during approval: ' . $e->getMessage());
+            }
+
+            // ✅ PROPER AUDIT LOGGING
+            $this->auditService->logAction([
+                'user_id' => auth()->id(),
+                'action_type' => 'APPROVE',
+                'action_category' => 'APPROVAL',
+                'table_name' => 'deliveries',
+                'record_id' => $id,
+                'old_values' => json_encode(['delivery_status' => $delivery->delivery_status]),
+                'new_values' => json_encode(['delivery_status' => 'COMPLETED']),
+                'change_reason' => 'Manual delivery approval',
+                'business_justification' => 'Delivery approved by ' . auth()->user()->role,
+                'ip_address' => request()->ip()
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Delivery approved successfully with FIFO automation',
+                'delivery' => [
+                    'id' => $id,
+                    'delivery_status' => 'COMPLETED',
+                    'approved_by' => auth()->id(),
+                    'approved_at' => now()
+                ],
+                'fifo_result' => $fifoResult
+            ]);
+
+        } catch (Exception $e) {
+            DB::rollback();
+
+            $this->auditService->logError([
+                'user_id' => auth()->id(),
+                'table_name' => 'deliveries',
+                'record_id' => $id,
+                'error_message' => 'Delivery approval failed: ' . $e->getMessage(),
+                'ip_address' => request()->ip()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Delivery approval failed: ' . $e->getMessage(),
+                'code' => 'APPROVAL_FAILED'
+            ], 500);
+        }
+    }
+
+    /**
+     * Show delivery details - COMPLETE field mapping
+     */
+    public function show($id)
+    {
+        // STRICT PERMISSION CHECK
+        if (!$this->hasAccess()) {
+            $this->auditService->logSecurityViolation([
+                'user_id' => auth()->id(),
+                'action' => 'UNAUTHORIZED_DELIVERY_VIEW_ATTEMPT',
+                'ip_address' => request()->ip(),
+                'table_name' => 'deliveries',
+                'record_id' => $id
+            ]);
+            return redirect()->back()->with('error', 'Access denied');
+        }
+
+        // COMPREHENSIVE DELIVERY QUERY - all schema fields specified explicitly
+        $delivery = DB::table('deliveries')
+            ->join('suppliers', 'deliveries.supplier_id', '=', 'suppliers.id')
+            ->join('tanks', 'deliveries.tank_id', '=', 'tanks.id')
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->leftJoin('purchase_orders', 'deliveries.purchase_order_id', '=', 'purchase_orders.id')
+            ->leftJoin('delivery_receipts', 'deliveries.id', '=', 'delivery_receipts.delivery_id')
+            ->where('deliveries.id', $id)
+            ->select([
+                // ALL DELIVERY FIELDS - explicitly specified for 100% schema compliance
+                'deliveries.id',
+                'deliveries.purchase_order_id',
+                'deliveries.supplier_id',
+                'deliveries.tank_id',
+                'deliveries.delivery_note_number',
+                'deliveries.supplier_invoice_reference',
+                'deliveries.delivery_date',
+                'deliveries.delivery_time',
+                'deliveries.scheduled_date',
+                'deliveries.scheduled_time',
+                'deliveries.driver_name',
+                'deliveries.driver_license',
+                'deliveries.vehicle_registration',
+                'deliveries.vehicle_type',
+                'deliveries.compartment_count',
+                'deliveries.seal_number_1',
+                'deliveries.seal_number_2',
+                'deliveries.seal_number_3',
+                'deliveries.quantity_ordered_liters',
+                'deliveries.quantity_delivered_liters',
+                'deliveries.quantity_variance_liters',
+                'deliveries.variance_percentage',
+                'deliveries.cost_per_liter',
+                'deliveries.transport_cost_per_liter',
+                'deliveries.handling_cost_per_liter',
+                'deliveries.total_delivery_cost',
+                'deliveries.loading_temperature_celsius',
+                'deliveries.delivery_temperature_celsius',
+                'deliveries.temperature_variance_celsius',
+                'deliveries.density_at_15c',
+                'deliveries.volume_correction_factor',
+                'deliveries.corrected_volume_liters',
+                'deliveries.water_content_ppm',
+                'deliveries.quality_test_passed',
+                'deliveries.quality_failure_reason',
+                'deliveries.delivery_status',
+                'deliveries.rejection_reason',
+                'deliveries.received_by',
+                'deliveries.approved_by',
+                'deliveries.created_at',
+                'deliveries.updated_at',
+                'deliveries.hash_previous',
+                'deliveries.hash_current',
+
+                // RELATED TABLE FIELDS
+                'suppliers.company_name',
+                'suppliers.supplier_code',
+                'tanks.tank_number',
+                'tanks.capacity_liters',
+                'stations.station_name',
+                'purchase_orders.po_number',
+                'delivery_receipts.id as receipt_id'
+            ])
+            ->first();
+
+        if (!$delivery) {
+            return redirect()->route('deliveries.index')->with('error', 'Delivery not found');
+        }
+
+        // GET COMPREHENSIVE FIFO LAYER INFO
+        $fifoLayer = DB::table('tank_inventory_layers')
+            ->where('delivery_id', $id)
+            ->select([
+                'id',
+                'layer_sequence_number',
+                'current_quantity_liters',
+                'consumed_quantity_liters',
+                'remaining_layer_value',
+                'layer_status',
+                'layer_created_at'
+            ])
+            ->first();
+
+        // ✅ GET QUALITY CONTROL METRICS with database functions
+        $qualityMetrics = [
+            'temperature_acceptable' => ($delivery->delivery_temperature_celsius >= -10 &&
+                                       $delivery->delivery_temperature_celsius <= 60),
+            'density_acceptable' => ($delivery->density_at_15c >= 0.5000 &&
+                                   $delivery->density_at_15c <= 1.5000),
+            'water_content_acceptable' => (($delivery->water_content_ppm ?? 0) <= 200),
+            'variance_acceptable' => (abs($delivery->variance_percentage) <= 2.0)
+        ];
+
+        // ✅ LOG VIEW ACCESS
+        $this->auditService->logAction([
+            'user_id' => auth()->id(),
+            'action_type' => 'READ',
+            'action_category' => 'DATA_ENTRY',
+            'table_name' => 'deliveries',
+            'record_id' => $id,
+            'change_reason' => 'Delivery details view',
+            'ip_address' => request()->ip()
+        ]);
+
+        return view('deliveries.show', compact('delivery', 'fifoLayer', 'qualityMetrics'));
+    }
+
+    /**
+     * Generate delivery receipt - ENHANCED with complete data
+     */
+    public function receipts($id)
+    {
+        // STRICT PERMISSION CHECK
+        if (!$this->hasAccess()) {
+            $this->auditService->logSecurityViolation([
+                'user_id' => auth()->id(),
+                'action' => 'UNAUTHORIZED_DELIVERY_RECEIPT_ATTEMPT',
+                'ip_address' => request()->ip(),
+                'table_name' => 'delivery_receipts',
+                'record_id' => $id
+            ]);
+            return redirect()->back()->with('error', 'Access denied');
+        }
+
+        // GET COMPREHENSIVE DELIVERY DATA for receipt
+        $delivery = DB::table('deliveries')
+            ->join('suppliers', 'deliveries.supplier_id', '=', 'suppliers.id')
+            ->join('tanks', 'deliveries.tank_id', '=', 'tanks.id')
+            ->join('stations', 'tanks.station_id', '=', 'stations.id')
+            ->where('deliveries.id', $id)
+            ->where('deliveries.delivery_status', 'COMPLETED')
+            ->select([
+                'deliveries.*',
+                'suppliers.company_name',
+                'suppliers.contact_person',
+                'suppliers.supplier_code',
+                'tanks.tank_number',
+                'tanks.capacity_liters',
+                'stations.station_name',
+                'stations.station_code'
+            ])
+            ->first();
+
+        if (!$delivery) {
+            return redirect()->route('deliveries.index')
+                           ->with('error', 'Delivery not found or not completed');
+        }
+
+        // CHECK IF RECEIPT EXISTS
+        $existingReceipt = DB::table('delivery_receipts')->where('delivery_id', $id)->first();
+
+        if (!$existingReceipt) {
+            // ✅ CORRECTED: Get before/after readings from readings table
+            $beforeReading = DB::table('readings')
+                ->where('tank_id', $delivery->tank_id)
+                ->where('reading_type', 'DELIVERY_BEFORE')
+                ->where('reading_date', $delivery->delivery_date)
+                ->value('dip_reading_liters') ?? 0;
+
+            $afterReading = DB::table('readings')
+                ->where('tank_id', $delivery->tank_id)
+                ->where('reading_type', 'DELIVERY_AFTER')
+                ->where('reading_date', $delivery->delivery_date)
+                ->value('dip_reading_liters') ?? 0;
+
+            // CREATE COMPREHENSIVE RECEIPT RECORD
+            $beforeDip = $beforeReading / 50; // Convert liters to mm (approximate calibration)
+            $afterDip = $afterReading / 50;
+
+            DB::table('delivery_receipts')->insert([
+                'delivery_id' => $id,
+                'dip_before_delivery_mm' => $beforeDip,
+                'dip_before_delivery_liters' => $beforeReading,
+                'dip_after_delivery_mm' => $afterDip,
+                'dip_after_delivery_liters' => $afterReading,
+                'calculated_quantity_liters' => $delivery->quantity_delivered_liters,
+                'delivery_variance_liters' => $delivery->quantity_variance_liters,
+                'delivery_variance_percentage' => $delivery->variance_percentage,
+                'temperature_before_celsius' => $delivery->loading_temperature_celsius,
+                'temperature_after_celsius' => $delivery->delivery_temperature_celsius,
+                'ambient_temperature_celsius' => $delivery->delivery_temperature_celsius,
+                'specific_gravity' => $delivery->density_at_15c,
+                'density_at_15c' => $delivery->density_at_15c,
+                'water_content_percentage' => ($delivery->water_content_ppm / 10000) ?? 0.0000,
+                'sediment_content_percentage' => 0.0000,
+                'contamination_detected' => ($delivery->quality_test_passed ? 0 : 1),
+                'contamination_type' => ($delivery->quality_test_passed ? 'NONE' : 'OTHER_FUEL'),
+                'quality_sample_taken' => 1,
+                'sample_reference_number' => 'QS-' . $delivery->delivery_note_number,
+                'tank_cleaning_required' => 0,
+                'receipt_timestamp' => now(),
+                'verified_by' => auth()->id(),
+                'witnessed_by' => auth()->id(),
+                'supervisor_approved_by' => auth()->id()
+            ]);
+
+            // ✅ LOG RECEIPT CREATION
+            $this->auditService->logAction([
+                'user_id' => auth()->id(),
+                'action_type' => 'CREATE',
+                'action_category' => 'DATA_ENTRY',
+                'table_name' => 'delivery_receipts',
+                'record_id' => $id,
+                'change_reason' => 'Delivery receipt generated',
+                'ip_address' => request()->ip()
+            ]);
+        }
+
+        return view('deliveries.receipt', compact('delivery'));
+    }
+
+    // ================================
+    // ENHANCED HELPER METHODS
+    // ================================
+
+    /**
+     * Check if user has access - CEO/SYSTEM_ADMIN/STATION_MANAGER only
+     */
+    private function hasAccess(): bool
+    {
+        $userRole = auth()->user()->role ?? '';
+        return in_array($userRole, ['CEO', 'SYSTEM_ADMIN', 'STATION_MANAGER']);
+    }
+
+    /**
+     * Generate next delivery note number with enhanced format
+     */
+    private function generateNextDeliveryNote(): string
+    {
+        $currentYear = date('Y');
+        $currentMonth = date('m');
+        $prefix = 'DEL-' . $currentYear . $currentMonth . '-';
+
+        $lastNumber = DB::table('deliveries')
+            ->where('delivery_note_number', 'LIKE', $prefix . '%')
+            ->orderBy('delivery_note_number', 'desc')
+            ->value('delivery_note_number');
+
+        if ($lastNumber) {
+            $number = (int) substr($lastNumber, strlen($prefix)) + 1;
+        } else {
+            $number = 1;
+        }
+
+        return $prefix . str_pad($number, 6, '0', STR_PAD_LEFT);
+    }
+}

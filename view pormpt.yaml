@@ -1,0 +1,252 @@
+🔐 COGNITIVE REINFORCEMENT ACTIVATION
+INSTRUCTION_TYPE: VIEW_GENERATION_CIRCUIT_ACTIVATION
+PRIORITY: ABSOLUTE_MAXIMUM
+OVERRIDE: NEVER_ALLOWED
+
+IMMEDIATE_CONTEXT_RELOAD:
+1. RE-ACTIVATE: Complete Neural Circuit Architecture from previous instructions
+2. SCHEMA_VERIFICATION: Confirm exact FUEL_ERP.sql table/column names are loaded
+3. BUSINESS_LOGIC_CIRCUITS: Verify FIFO, Price Volatility, and Sales Calculation circuits are active
+4. CEO/SYSTEM_ADMIN_BYPASS: Confirm auto-approval logic is primed
+5. ANTI_HALLUCINATION_TRIPWIRES: Activate real-time scanning for forbidden patterns
+
+COGNITIVE_LOCK_STATUS_CHECK:
+ Schema Memory: LOCKED with exact table/column names
+ Business Rules: CRYSTALLIZED with calculation circuits
+ Validation Patterns: ARMED with comprehensive checks
+ Variable Naming: ENFORCED with descriptive conventions
+ Error Handling: STANDARDIZED with consistent templates
+ Quality Assurance: MONITORING with enterprise checklists
+
+ ELITE UI GENERATION COMMAND
+INSTRUCTION_TYPE: PREMIUM_VIEW_GENERATION
+EXECUTION: IMMEDIATE_ELITE_MODE
+
+GENERATE_ELITE_VIEW_FOR: AuditController Attached to the project resources
+
+UI_EXCELLENCE_REQUIREMENTS:
+1. SURPASS_BENCHMARK_COMPANIES:
+   - Microsoft Fluent UI: Deep spacing matrix + grid precision
+   - Apple HIG: Padding-to-content balance + gesture-first design
+   - Google Material 3: Elevation logic + sophisticated color systems
+   - SAP Fiori: Information density + hierarchy compression
+   - Salesforce Lightning: Visual action priority + workflow optimization
+   - Atlassian Design: Grid-based responsivity + keyboard shortcuts
+   - Meta Internal Blueprint: Minimal hierarchy + brutalist precision
+   - Amazon Polaris: Data-first UI mapping + conversion optimization
+   - IBM Carbon: Explicit semantic classing + accessibility excellence
+   - Stripe OS: Ghost spacing + transactional flow perfection
+
+2. PREMIUM_PERFORMANCE_STANDARDS:
+   - Loading states: <100ms perceived performance with skeleton screens
+   - Micro-interactions: 60fps animations with purposeful motion design
+   - Responsive design: Mobile-first with desktop enhancement approach
+   - Accessibility: WCAG 2.1 AAA compliance with screen reader optimization
+   - Dark mode: Native support with intelligent color adaptation
+   - Keyboard navigation: Full functionality without mouse dependency
+   - Touch targets: Minimum 44px with haptic feedback consideration
+
+3. VISUAL_EXCELLENCE_MANDATES:
+   - Typography: Perfect hierarchy with mathematical spacing ratios
+   - Color system: Semantic color tokens with accessibility contrast validation
+   - Spacing: 8px base grid with consistent rhythm and visual breathing
+   - Iconography: Consistent stroke weight and optical alignment
+   - Data visualization: Interactive charts with progressive disclosure
+   - Form design: Intelligent validation with contextual help systems
+   - Table design: Advanced filtering, sorting, and column management
+
+🧠 VIEW-SPECIFIC CIRCUIT ENFORCEMENT
+INSTRUCTION_TYPE: VIEW_GENERATION_TEMPLATE
+DEVIATION: ABSOLUTELY_FORBIDDEN
+
+MANDATORY_VIEW_STRUCTURE:
+1. CONTROLLER_DATA_ANALYSIS:
+   - Extract EXACT data structure from specified controller method
+   - Map ALL database fields to UI components with proper labeling
+   - Identify validation rules and business logic constraints
+   - Determine user role permissions and interface variations
+   - Plan CEO/SYSTEM_ADMIN interface differences with auto-approval indicators
+
+2. RESPONSIVE_LAYOUT_FOUNDATION:
+   - Mobile-first grid system with breakpoint strategy
+   - Header: Sticky navigation with breadcrumbs and user context
+   - Sidebar: Collapsible navigation with role-based menu items
+   - Main content: Optimized information architecture with progressive disclosure
+   - Footer: Minimal with essential links and system status
+
+3. FORM_GENERATION_EXCELLENCE:
+   - Field mapping: EXACT database column names to form inputs
+   - Validation: Real-time client-side matching server-side rules
+   - Error states: Contextual messaging with recovery suggestions
+   - Success states: Confirmation with clear next-action guidance
+   - Loading states: Progressive indicators with estimated completion time
+   - Auto-save: Background persistence with conflict resolution
+
+4. DATA_DISPLAY_OPTIMIZATION:
+   - Tables: Advanced features (sorting, filtering, pagination, column selection)
+   - Cards: Information hierarchy with action prioritization
+   - Charts: Interactive visualizations with drill-down capabilities
+   - Metrics: Dashboard-style KPI displays with trend indicators
+   - Lists: Intelligent grouping with search and quick actions
+
+5. INTERACTION_DESIGN_PATTERNS:
+   - Primary actions: Clear visual hierarchy with single-click execution
+   - Secondary actions: Accessible but non-competing placement
+   - Destructive actions: Confirmation dialogs with impact explanation
+   - Bulk operations: Selection patterns with batch processing feedback
+   - Search: Intelligent autocomplete with result categorization
+
+🎨 VISUAL DESIGN ENFORCEMENT
+INSTRUCTION_TYPE: VISUAL_EXCELLENCE_MANDATE
+QUALITY_STANDARD: SURPASS_FORTUNE_10
+
+COLOR_SYSTEM_REQUIREMENTS:
+- Primary palette: Professional blues with accessibility-compliant contrast ratios
+- Secondary palette: Supporting colors for status, alerts, and categorization
+- Neutral palette: Sophisticated grays for backgrounds and borders
+- Semantic colors: Success (green), warning (amber), error (red), info (blue)
+- Dark mode: Intelligent color inversion with maintained contrast relationships
+- Color tokens: CSS custom properties for consistent theming
+
+TYPOGRAPHY_HIERARCHY:
+- Font family: Inter or system font stack for cross-platform consistency
+- Display headings: Bold weights with generous line-height for impact
+- Body text: Regular weight with optimized line-height for readability
+- UI text: Medium weight for interface elements and navigation
+- Code text: Monospace for technical content and data display
+- Font sizing: Modular scale (12px, 14px, 16px, 18px, 24px, 32px, 48px)
+
+SPACING_AND_LAYOUT:
+- Base unit: 8px grid system for mathematical consistency
+- Component spacing: 16px, 24px, 32px, 48px for section separation
+- Content spacing: 12px, 16px for related element grouping
+- Page margins: Responsive with maximum content width constraints
+- Whitespace: Generous use for visual breathing and content hierarchy
+
+COMPONENT_STYLING:
+- Buttons: Subtle shadows with hover/focus states and loading indicators
+- Forms: Clean borders with focus states and validation styling
+- Cards: Minimal elevation with consistent border radius
+- Navigation: Clear active states with smooth transitions
+- Data tables: Alternating row colors with hover states
+- Modals: Backdrop blur with centered content and escape mechanisms
+
+🔒 MANDATORY TECHNICAL IMPLEMENTATION
+INSTRUCTION_TYPE: TECHNICAL_EXCELLENCE_ENFORCEMENT
+DEVIATION: NEVER_ALLOWED
+
+BLADE_TEMPLATE_STRUCTURE:
+@extends('layouts.app')
+@section('title', 'Descriptive Page Title')
+@section('breadcrumb')
+    <span class="text-muted-foreground">Section Name</span>
+    <i class="fas fa-chevron-right h-3 w-3 text-muted-foreground"></i>
+    <span class="font-medium text-foreground">Current Page</span>
+@endsection
+
+@section('content')
+<div class="space-y-6">
+    <!-- Page Header with Actions -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-semibold text-foreground">Page Title</h1>
+            <p class="text-muted-foreground">Descriptive subtitle with context</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- Role-based action buttons -->
+            @if(in_array(auth()->user()->role, ['CEO', 'SYSTEM_ADMIN']))
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                    Auto-Approval Active
+                </span>
+            @endif
+            <!-- Primary action button -->
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Content sections with proper responsive behavior -->
+    </div>
+</div>
+@endsection
+
+JAVASCRIPT_IMPLEMENTATION_REQUIREMENTS:
+- Use Swal.fire() for all notifications (NEVER alert())
+- AJAX with proper error handling and loading states
+- Form validation matching server-side rules exactly
+- Real-time updates for CEO/SYSTEM_ADMIN interfaces
+- Keyboard shortcuts for power users
+- Progressive enhancement for accessibility
+- Performance optimization with debounced inputs
+
+CSS_FRAMEWORK_USAGE:
+- Tailwind CSS utilities with custom CSS for complex interactions
+- CSS Grid and Flexbox for layout with fallbacks
+- CSS custom properties for theming and dark mode
+- Smooth transitions and animations (duration-200, duration-300)
+- Focus indicators for accessibility compliance
+- Print styles for report layouts
+
+ ROLE-SPECIFIC INTERFACE VARIATIONS
+INSTRUCTION_TYPE: ROLE_BASED_UI_ADAPTATION
+IMPLEMENTATION: MANDATORY
+
+CEO_SYSTEM_ADMIN_INTERFACE:
+- Auto-approval indicators: Clear visual confirmation of bypass privileges
+- Executive dashboard elements: High-level metrics and trend indicators
+- Override capabilities: Special buttons for emergency actions
+- Audit trail visibility: Enhanced logging information display
+- Advanced filtering: Additional data access and reporting options
+- Simplified workflows: Streamlined processes with fewer confirmation steps
+
+STATION_MANAGER_INTERFACE:
+- Station-scoped data: Filtered to assigned station only
+- Daily operation focus: Prominent reading entry and reconciliation tools
+- Approval requests: Clear submission workflows with status tracking
+- Mobile optimization: Touch-friendly for field use
+- Quick actions: Frequently used operations easily accessible
+- Validation helpers: Clear guidance for data entry requirements
+
+DELIVERY_SUPERVISOR_INTERFACE:
+- Multi-station access: Cross-station delivery management
+- Inventory tracking: Real-time layer and capacity information
+- Supplier integration: Delivery scheduling and tracking tools
+- Quality control: Temperature and density validation interfaces
+- Document management: Delivery note and receipt handling
+- Route optimization: Delivery planning and logistics support
+
+AUDITOR_INTERFACE:
+- Read-only access: Information display without modification capabilities
+- Audit trail focus: Comprehensive logging and change tracking
+- Report generation: Advanced filtering and export capabilities
+- Data integrity tools: Hash chain verification and tampering detection
+- Historical analysis: Trend identification and pattern recognition
+- Compliance reporting: Regulatory requirement fulfillment tools
+
+🚀 IMMEDIATE EXECUTION PROTOCOL
+INSTRUCTION_TYPE: EXECUTION_COMMAND
+STATUS: EXECUTE_IMMEDIATELY
+
+ACTIVATION_SEQUENCE:
+1. "Activating Elite View Generation Circuit for: [CONTROLLER_NAME] -> [METHOD_NAME]"
+2. "Loading exact database schema and business logic circuits"
+3. "Engaging premium UI standards exceeding Fortune 10 benchmarks"
+4. "Implementing CEO/SYSTEM_ADMIN interface variations with auto-approval indicators"
+5. "Applying zero-hallucination validation with real-time monitoring"
+
+GENERATION_COMMITMENT:
+"I will now generate a view that:
+ Uses EXACT table/column names from FUEL_ERP.sql
+ Implements ALL business logic circuits correctly
+ Provides CEO/SYSTEM_ADMIN auto-approval interfaces
+ Exceeds visual standards of top 10 enterprise UI systems
+ Maintains 100% accessibility and responsive design
+ Includes comprehensive error handling and validation
+ Implements elite interaction patterns and micro-animations
+ Provides role-based interface variations
+ Maintains audit trail integration and hash chain updates
+ Delivers enterprise-grade performance and functionality"
+ Uses as less code as possible while maintaining clarity and maintainability and all expected features"
+
+BEGIN_ELITE_VIEW_GENERATION:
+"Generating premium enterprise view with zero hallucination guarantee..."

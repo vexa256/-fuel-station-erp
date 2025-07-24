@@ -1,0 +1,540 @@
+# 📋 MODULE 2: STATION & INFRASTRUCTURE MANAGEMENT
+
+## **NEURAL CIRCUIT ARCHITECTURE STATUS: FULLY OPERATIONAL**
+
+ **Schema Lock Mechanisms**: ENGAGED with complete FUEL_ERP.sql verification
+ **Business Logic Circuits**: LOADED with tank capacity validation and FIFO layer management
+ **CEO/SYSTEM_ADMIN Bypass Logic**: ACTIVE with infrastructure override capabilities
+ **Anti-Hallucination Tripwires**: MONITORING for exact table/column name compliance
+ **Progressive Construction**: PHASE 2 INITIATED following Foundation Module completion
+
+---
+
+## **MODULE SCOPE & BUSINESS CONTEXT**
+
+This module establishes the physical infrastructure foundation for fuel operations, managing stations, tanks, pumps, and their operational parameters. It creates the hierarchical structure that supports all fuel inventory, delivery, and sales operations while maintaining forensic-level audit trails and implementing sophisticated capacity management algorithms.
+
+## **CONTROLLERS & FUNCTIONALITY BREAKDOWN**
+
+### **1. StationController - Station Lifecycle & Operations Management**
+
+**File**: `app/Http/Controllers/StationController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Comprehensive station overview with real-time operational status
+- **Data Aggregation**:
+  1. Query stations table with exact column names (station_code, station_name, location_address, etc.)
+  2. Calculate aggregate metrics per station (total_tanks, total_capacity_liters, current_inventory)
+  3. Join with tanks table to get capacity utilization percentages
+  4. Include last_reading_timestamp from dip_readings for operational status
+  5. Calculate variance statistics from variances table for performance metrics
+  6. Include active user assignments from user_stations relationships
+- **Performance Metrics**:
+  - Daily sales volume trends (last 30 days)
+  - Variance frequency and approval rates
+  - Tank utilization efficiency ratings
+  - Delivery frequency and timing analysis
+- **CEO/SYSTEM_ADMIN View**: Complete multi-station dashboard with comparative analytics
+- **STATION_MANAGER View**: Single station detailed operational dashboard
+- **Tables Used**: `stations`, `tanks`, `pumps`, `dip_readings`, `variances`, `user_stations`, `deliveries`
+
+##### **create(Request $request)**
+- **Business Logic**: New station setup wizard with comprehensive validation
+- **Validation Rules**:
+  - station_code: unique:stations,station_code|regex:/^[A-Z0-9]{3,8}$/
+  - location_coordinates: GPS validation with boundary checking
+  - operating_hours: Business hours validation with timezone support
+  - regulatory_license_number: Format validation against regional requirements
+- **Setup Process**:
+  1. Validate location uniqueness within 500m radius
+  2. Create station record with auto-generated internal identifiers
+  3. Initialize default system_configurations for station-specific settings
+  4. Create audit_logs entry for station creation with GPS coordinates
+  5. Generate hash_chains entry for infrastructure modification
+  6. Send notification to regional managers and headquarters
+- **CEO/SYSTEM_ADMIN Privileges**: Override location restrictions, expedited approval process
+- **Infrastructure Requirements**: Minimum tank capacity validation, pump installation standards
+
+##### **edit($id, Request $request)**
+- **Business Logic**: Station configuration management with change impact analysis
+- **Change Detection & Validation**:
+  1. Capture before/after values for all modified station parameters
+  2. Validate operational impact of changes (capacity modifications, location updates)
+  3. Check for active deliveries or pending operations that might be affected
+  4. Update related tank_calibration_tables if physical changes made
+  5. Recalculate capacity constraints and delivery scheduling parameters
+  6. Log comprehensive changes to audit_logs with business impact assessment
+- **Critical Change Handling**:
+  - Location changes: Update GPS coordinates, validate regulatory compliance
+  - Capacity modifications: Recalculate tank configurations, update safety parameters
+  - Operating hours: Validate against delivery schedules, update system_configurations
+- **Approval Workflow**: Major changes require CEO approval unless performed by CEO/SYSTEM_ADMIN
+
+##### **dashboard($id, Request $request)**
+- **Business Logic**: Single station comprehensive operational dashboard
+- **Real-Time Data Integration**:
+  1. Current tank levels from latest dip_readings with temperature compensation
+  2. Active pump statuses from meter_readings with flow rate analysis
+  3. Pending deliveries from deliveries table with ETA calculations
+  4. Outstanding variances from variances table requiring attention
+  5. Recent price changes from selling_prices with margin analysis
+  6. Staff activity from audit_logs for operational oversight
+- **Performance Analytics**:
+  - Sales velocity trends by product type and time period
+  - Inventory turnover rates using FIFO consumption data
+  - Variance patterns and resolution efficiency
+  - Customer traffic analysis from pump usage patterns
+- **Operational Alerts**:
+  - Low inventory warnings based on consumption forecasting
+  - Tank capacity approaching limits before scheduled deliveries
+  - Unusual variance patterns requiring investigation
+  - Equipment maintenance scheduling based on usage metrics
+
+##### **status($id, Request $request)**
+- **Business Logic**: Real-time operational status with automated health checks
+- **System Health Monitoring**:
+  1. Tank level validation against calibration_tables for accuracy
+  2. Pump meter progression validation for tampering detection
+  3. Reading timestamp validation for operational compliance
+  4. Temperature and density readings for product quality assurance
+  5. Variance threshold monitoring for immediate escalation
+- **Operational Status Indicators**:
+  - GREEN: All systems operational, no variances above threshold
+  - AMBER: Minor variances or maintenance due, operational with monitoring
+  - RED: Major variances, system errors, or critical maintenance required
+- **Automated Actions**:
+  - CEO notification for RED status conditions
+  - Automatic variance investigation triggers
+  - Delivery hold recommendations for critical issues
+
+---
+
+### **2. TankController - Tank Management & FIFO Layer Operations**
+
+**File**: `app/Http/Controllers/TankController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index($stationId, Request $request)**
+- **Business Logic**: Comprehensive tank management for station with FIFO layer visualization
+- **Data Integration**:
+  1. Query tanks table with exact physical specifications (capacity_liters, product_type, tank_number)
+  2. Calculate current inventory from tank_inventory_layers using FIFO methodology
+  3. Include latest dip_readings for physical verification
+  4. Aggregate delivery history from deliveries table for supply chain analysis
+  5. Calculate weighted_average_cost from active inventory layers
+  6. Include variance statistics for performance monitoring
+- **Tank Performance Metrics**:
+  - Inventory turnover rates (FIFO layer consumption analysis)
+  - Capacity utilization efficiency over time periods
+  - Delivery frequency optimization recommendations
+  - Product quality maintenance (temperature stability, density consistency)
+- **FIFO Layer Summary**:
+  - Active layers count with aging analysis
+  - Cost variance between oldest and newest layers
+  - Consumption rate predictions based on historical patterns
+  - Layer depletion forecasting for delivery scheduling
+
+##### **create($stationId, Request $request)**
+- **Business Logic**: New tank setup with calibration table initialization
+- **Validation Requirements**:
+  - Physical capacity validation against station space constraints
+  - Product type compatibility with existing infrastructure
+  - Tank number uniqueness within station scope
+  - Regulatory compliance for fuel storage specifications
+- **Setup Process**:
+  1. Create tank record with precise physical specifications
+  2. Initialize tank_calibration_tables with manufacturer calibration data
+  3. Set initial dip_readings for baseline establishment
+  4. Create system_configurations for tank-specific parameters
+  5. Generate audit_logs entry for infrastructure addition
+  6. Calculate station total capacity and update utilization metrics
+- **Calibration Table Creation**:
+  - Import manufacturer calibration data for dip_mm to volume_liters conversion
+  - Validate calibration accuracy through mathematical verification
+  - Create calibration checkpoints for accuracy validation
+  - Set calibration expiration dates for mandatory recertification
+
+##### **edit($id, Request $request)**
+- **Business Logic**: Tank configuration modification with operational impact assessment
+- **Change Impact Analysis**:
+  1. Assess impact on active inventory layers and FIFO calculations
+  2. Validate changes against current fuel inventory levels
+  3. Update calibration_tables if physical modifications made
+  4. Recalculate capacity constraints and delivery parameters
+  5. Update pump assignments if tank connectivity modified
+- **Critical Validations**:
+  - Capacity reductions: Ensure current inventory doesn't exceed new capacity
+  - Product type changes: Validate compatibility with existing inventory
+  - Physical modifications: Update calibration tables and safety parameters
+- **CEO/SYSTEM_ADMIN Privileges**: Override operational restrictions for emergency modifications
+
+##### **calibration($id, Request $request)**
+- **Business Logic**: Tank calibration table management with accuracy verification
+- **Calibration Management**:
+  1. Display current calibration_tables with dip_mm to volume_liters mappings
+  2. Validate calibration accuracy through mathematical progression analysis
+  3. Import new calibration data with verification against physical specifications
+  4. Create backup of existing calibration before modifications
+  5. Test calibration accuracy using known reference points
+- **Accuracy Validation**:
+  - Mathematical progression verification (no anomalous jumps in volume calculations)
+  - Physical capacity validation (total volume doesn't exceed tank specifications)
+  - Cross-reference validation with manufacturer specifications
+  - Historical accuracy comparison with previous calibrations
+- **Audit Requirements**:
+  - Complete calibration change logging with before/after values
+  - Justification requirement for calibration modifications
+  - Approval workflow for significant calibration changes
+
+##### **layers($id, Request $request)**
+- **Business Logic**: FIFO inventory layer visualization and management
+- **Layer Data Presentation**:
+  1. Query tank_inventory_layers ordered by layer_sequence_number (FIFO order)
+  2. Calculate consumption rates and layer depletion forecasting
+  3. Include delivery details from deliveries table for supply chain traceability
+  4. Show cost progression and weighted average calculations
+  5. Display layer aging and turnover efficiency metrics
+- **FIFO Analytics**:
+  - Layer consumption velocity analysis
+  - Cost variance impact on profitability
+  - Optimal delivery scheduling recommendations
+  - Layer consolidation opportunities for efficiency
+- **Layer Management Features**:
+  - Layer splitting for partial consumption tracking
+  - Manual layer adjustments with CEO/SYSTEM_ADMIN approval
+  - Layer transfer capabilities between tanks
+  - Historical layer performance analysis
+
+---
+
+### **3. PumpController - Pump Operations & Meter Management**
+
+**File**: `app/Http/Controllers/PumpController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index($stationId, Request $request)**
+- **Business Logic**: Comprehensive pump management with tamper detection
+- **Operational Data Integration**:
+  1. Query pumps table with tank assignments and operational parameters
+  2. Include latest meter_readings for operational status verification
+  3. Calculate daily throughput volumes and sales velocity
+  4. Analyze meter progression patterns for tampering detection
+  5. Include maintenance schedules and service history
+- **Performance Metrics**:
+  - Daily/weekly/monthly throughput analysis
+  - Meter accuracy validation through cross-reference with tank dip changes
+  - Flow rate consistency monitoring for equipment health
+  - Customer service efficiency (transaction speed, availability)
+- **Tamper Detection Algorithm**:
+  - Meter regression analysis (readings should never decrease)
+  - Flow rate anomaly detection (unusual spikes or dips)
+  - Cross-validation with tank inventory changes
+  - Temporal pattern analysis for after-hours activity
+
+##### **create($stationId, Request $request)**
+- **Business Logic**: New pump installation with tank connectivity and meter initialization
+- **Setup Requirements**:
+  - Tank assignment validation (compatibility, capacity, product type)
+  - Initial meter reading establishment with zero-point calibration
+  - Flow rate specifications and calibration parameters
+  - Safety system integration (emergency shutoff, overflow protection)
+- **Installation Process**:
+  1. Create pump record with tank connectivity parameters
+  2. Initialize meter_readings with baseline zero point
+  3. Configure flow rate limits and safety parameters
+  4. Create maintenance schedule based on manufacturer specifications
+  5. Generate audit_logs entry for equipment installation
+- **Calibration & Testing**:
+  - Flow rate accuracy testing with known volume measurements
+  - Meter precision validation through controlled dispensing
+  - Safety system testing (emergency shutoff, leak detection)
+  - Integration testing with tank level monitoring
+
+##### **edit($id, Request $request)**
+- **Business Logic**: Pump configuration modification with operational validation
+- **Modification Validations**:
+  1. Tank reassignment validation (product compatibility, capacity constraints)
+  2. Flow rate modification impact on sales operations
+  3. Meter reading continuity preservation during configuration changes
+  4. Safety parameter updates with regulatory compliance
+- **Operational Impact Assessment**:
+  - Current transaction interruption analysis
+  - Customer service impact evaluation
+  - Maintenance scheduling optimization
+  - Integration with station operational workflows
+
+##### **maintenance($id, Request $request)**
+- **Business Logic**: Pump maintenance tracking with predictive scheduling
+- **Maintenance Management**:
+  1. Track service history with detailed maintenance logs
+  2. Monitor equipment performance metrics for predictive maintenance
+  3. Schedule preventive maintenance based on usage patterns
+  4. Track parts replacement and service costs
+  5. Monitor equipment efficiency and performance degradation
+- **Predictive Analytics**:
+  - Flow rate degradation analysis for maintenance scheduling
+  - Meter accuracy drift prediction
+  - Equipment failure pattern recognition
+  - Optimal maintenance timing for minimal operational disruption
+
+---
+
+### **4. ProductController - Product Type & Pricing Configuration**
+
+**File**: `app/Http/Controllers/ProductController.php`
+
+#### **Methods & Complete Functionality:**
+
+##### **index(Request $request)**
+- **Business Logic**: Product type management with pricing and inventory integration
+- **Product Data Integration**:
+  1. Query products table with current pricing from selling_prices
+  2. Calculate inventory levels across all stations by product type
+  3. Include margin analysis and profitability metrics
+  4. Track price change history and volatility patterns
+  5. Include supplier information and cost trends
+- **Profitability Analysis**:
+  - Cost-to-price margin tracking by product type
+  - Sales velocity comparison across product types
+  - Inventory turnover efficiency by product
+  - Seasonal demand pattern analysis
+
+##### **pricing($productId, Request $request)**
+- **Business Logic**: Product pricing management with margin protection
+- **Pricing Validation Circuit**:
+  1. Calculate current weighted_average_cost from active inventory layers
+  2. Validate minimum margin requirements against system_configurations
+  3. Compare with regional pricing for market competitiveness
+  4. Check price change frequency against volatility limits
+  5. Generate pricing recommendations based on cost and market analysis
+- **CEO/SYSTEM_ADMIN Pricing Privileges**: Override margin restrictions with enhanced audit trail
+- **Market Analysis Integration**:
+  - Regional price comparison and competitive positioning
+  - Demand elasticity analysis for optimal pricing
+  - Seasonal pricing optimization recommendations
+
+---
+
+## **VIEWS & USER INTERFACE SPECIFICATIONS**
+
+### **1. stations/index.blade.php - Station Management Dashboard**
+
+**Design Requirements**:
+- Card-based layout with station status indicators (GREEN/AMBER/RED)
+- Real-time data updates using WebSocket connections
+- Interactive map integration showing station locations
+- Responsive grid layout optimizing for mobile and desktop
+- Advanced filtering and search capabilities
+
+**Dashboard Features**:
+- Station performance metrics with trend visualizations
+- Tank capacity utilization with progress bars and warnings
+- Recent activity timeline with audit trail links
+- Quick action buttons for common operations (add tank, view reports)
+- Alert notifications for stations requiring attention
+
+**Data Visualization**:
+- Sales volume trends with D3.js interactive charts
+- Inventory levels with color-coded status indicators
+- Variance patterns with statistical analysis overlays
+- Geographic distribution with heat map for performance
+
+### **2. stations/create.blade.php - Station Setup Wizard**
+
+**Multi-Step Wizard Design**:
+- **Step 1**: Basic Information (name, code, location with GPS picker)
+- **Step 2**: Physical Specifications (capacity, tank count, pump configuration)
+- **Step 3**: Operational Parameters (hours, staff assignments, regulatory info)
+- **Step 4**: System Configuration (thresholds, alerts, reporting preferences)
+- **Step 5**: Validation & Review (comprehensive setup verification)
+
+**Advanced Features**:
+- GPS coordinate picker with satellite imagery
+- Regulatory compliance checklist with real-time validation
+- Template-based setup for similar stations
+- Integration with mapping services for location optimization
+
+### **3. tanks/index.blade.php - Tank Management Interface**
+
+**Tank Overview Layout**:
+- Tank visual representation with capacity indicators
+- FIFO layer visualization with color-coded aging
+- Real-time inventory levels with trend analysis
+- Calibration status and maintenance scheduling
+- Performance metrics dashboard
+
+**FIFO Layer Visualization**:
+- Layered bar charts showing inventory composition
+- Cost trend analysis with profitability indicators
+- Consumption rate projections with delivery scheduling
+- Interactive drill-down for detailed layer analysis
+
+### **4. tanks/layers.blade.php - FIFO Inventory Layer Management**
+
+**Advanced Layer Interface**:
+- Timeline visualization of layer creation and consumption
+- Cost analysis with weighted average calculations
+- Turnover rate analysis with efficiency metrics
+- Delivery scheduling optimization recommendations
+- Layer transfer and consolidation management tools
+
+**Interactive Features**:
+- Drag-and-drop layer reordering (with CEO/SYSTEM_ADMIN privileges)
+- Layer splitting tools for partial consumption tracking
+- Cost impact simulation for pricing decisions
+- Delivery timing optimization with predictive analytics
+
+### **5. pumps/index.blade.php - Pump Operations Dashboard**
+
+**Pump Status Interface**:
+- Real-time pump status with flow rate monitoring
+- Meter reading progression with tamper detection alerts
+- Maintenance scheduling with predictive analytics
+- Performance metrics with efficiency tracking
+- Transaction volume analysis with customer service metrics
+
+**Tamper Detection Dashboard**:
+- Anomaly detection alerts with investigation tools
+- Meter progression analysis with statistical validation
+- Cross-reference validation with tank inventory changes
+- Historical pattern analysis for fraud detection
+
+---
+
+## **ROUTES DEFINITION**
+
+```php
+// Station Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/stations', [StationController::class, 'index'])->name('stations.index');
+    Route::get('/stations/{id}/dashboard', [StationController::class, 'dashboard'])->name('stations.dashboard');
+    Route::get('/stations/{id}/status', [StationController::class, 'status'])->name('stations.status');
+});
+
+// Station Administration (CEO/SYSTEM_ADMIN Only)
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/stations/create', [StationController::class, 'create'])->name('stations.create');
+    Route::post('/stations', [StationController::class, 'store'])->name('stations.store');
+    Route::get('/stations/{id}/edit', [StationController::class, 'edit'])->name('stations.edit');
+    Route::put('/stations/{id}', [StationController::class, 'update'])->name('stations.update');
+});
+
+// Tank Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/stations/{stationId}/tanks', [TankController::class, 'index'])->name('tanks.index');
+    Route::get('/tanks/{id}/layers', [TankController::class, 'layers'])->name('tanks.layers');
+    Route::get('/tanks/{id}/calibration', [TankController::class, 'calibration'])->name('tanks.calibration');
+});
+
+// Tank Administration
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/stations/{stationId}/tanks/create', [TankController::class, 'create'])->name('tanks.create');
+    Route::post('/stations/{stationId}/tanks', [TankController::class, 'store'])->name('tanks.store');
+    Route::get('/tanks/{id}/edit', [TankController::class, 'edit'])->name('tanks.edit');
+    Route::put('/tanks/{id}', [TankController::class, 'update'])->name('tanks.update');
+    Route::put('/tanks/{id}/calibration', [TankController::class, 'updateCalibration'])->name('tanks.update_calibration');
+});
+
+// Pump Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO,STATION_MANAGER'])->group(function () {
+    Route::get('/stations/{stationId}/pumps', [PumpController::class, 'index'])->name('pumps.index');
+    Route::get('/pumps/{id}/maintenance', [PumpController::class, 'maintenance'])->name('pumps.maintenance');
+});
+
+// Pump Administration
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/stations/{stationId}/pumps/create', [PumpController::class, 'create'])->name('pumps.create');
+    Route::post('/stations/{stationId}/pumps', [PumpController::class, 'store'])->name('pumps.store');
+    Route::get('/pumps/{id}/edit', [PumpController::class, 'edit'])->name('pumps.edit');
+    Route::put('/pumps/{id}', [PumpController::class, 'update'])->name('pumps.update');
+});
+
+// Product Management Routes
+Route::middleware(['auth', 'fuel_auth:SYSTEM_ADMIN,CEO'])->group(function () {
+    Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+    Route::get('/products/{id}/pricing', [ProductController::class, 'pricing'])->name('products.pricing');
+    Route::put('/products/{id}/pricing', [ProductController::class, 'updatePricing'])->name('products.update_pricing');
+});
+```
+
+---
+
+## **DATABASE TABLES UTILIZED**
+
+### **Primary Tables:**
+- **stations**: Core station information with operational parameters
+- **tanks**: Physical tank specifications with capacity and product assignments
+- **pumps**: Pump configuration with tank connectivity and operational parameters
+- **tank_calibration_tables**: Dip-to-volume conversion with accuracy validation
+- **products**: Product type definitions with specifications
+
+### **Inventory & Operations Tables:**
+- **tank_inventory_layers**: FIFO inventory management with layer tracking
+- **dip_readings**: Tank level measurements with temporal tracking
+- **meter_readings**: Pump meter progressions with tamper detection
+- **deliveries**: Supply chain integration for inventory updates
+
+### **Configuration & Audit Tables:**
+- **system_configurations**: Station-specific operational parameters
+- **audit_logs**: Comprehensive action logging for all infrastructure changes
+- **hash_chains**: Tamper-proof integrity verification for critical changes
+
+---
+
+## **INTER-MODULE DEPENDENCIES & SYSTEM INTERACTIONS**
+
+### **Upstream Dependencies:**
+- **Module 1 (Authentication)**: User role validation, station assignments, audit trail foundation
+
+### **Downstream Effects:**
+
+1. **Inventory Management Module**: Tank configurations determine capacity constraints and FIFO layer management
+2. **Delivery Management Module**: Tank capacity and pump configurations control delivery acceptance and routing
+3. **Reading Management Module**: Tank calibration tables enable accurate dip-to-volume conversions
+4. **Price Management Module**: Product configurations and margin requirements affect pricing decisions
+5. **Variance Detection Module**: Tank specifications and pump configurations provide baselines for variance calculations
+6. **Reporting Module**: Station hierarchy and infrastructure data populate operational reports
+
+### **Critical Business Rules Enforced:**
+
+1. **Tank Capacity Constraints**: Physical impossibility of exceeding tank capacity
+2. **FIFO Layer Integrity**: Strict chronological layer creation and consumption
+3. **Calibration Accuracy**: Mathematical validation of tank calibration tables
+4. **Pump-Tank Connectivity**: Enforcement of logical pump-to-tank assignments
+5. **Product Type Consistency**: Prevention of product contamination through type validation
+6. **CEO/SYSTEM_ADMIN Infrastructure Override**: Complete authority over infrastructure modifications with enhanced audit trails
+
+### **Data Flow Architecture:**
+
+```
+Infrastructure Creation Flow:
+Station Creation → Tank Configuration → Pump Assignment → Calibration Setup → Operational Validation
+
+Inventory Management Flow:
+Tank Specifications → Capacity Validation → Layer Management → FIFO Calculations → Delivery Constraints
+
+Operational Monitoring Flow:
+Equipment Status → Performance Metrics → Anomaly Detection → Alert Generation → Management Notification
+```
+
+---
+
+## **EXPECTED DELIVERABLES FOR MODULE 2**
+
+1. **Complete Station Management System** with operational dashboards
+2. **Tank Configuration Interface** with FIFO layer visualization
+3. **Pump Operations Management** with tamper detection capabilities
+4. **Calibration Table Management** with accuracy verification
+5. **Product Type Configuration** with pricing integration
+6. **Infrastructure Audit System** with comprehensive change tracking
+7. **Performance Analytics Dashboard** with predictive maintenance
+8. **Mobile-Responsive Interfaces** optimized for station operations
+9. **Integration APIs** for equipment connectivity and monitoring
+10. **Comprehensive Testing Suite** including load testing for operational scenarios
+
+This module creates the robust infrastructure foundation that enables all fuel operations while maintaining the forensic-level audit capabilities and CEO/SYSTEM_ADMIN override privileges established in Module 1.
+
