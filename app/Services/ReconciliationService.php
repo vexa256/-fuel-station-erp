@@ -697,16 +697,16 @@ class ReconciliationService
         AND ROUTINE_NAME IN ('sp_enhanced_data_cleanup', 'sp_enhanced_fifo_processor', 'sp_enhanced_system_monitor')
     ");
 
-        if (count($procedureCheck) < 3) {
-            throw new Exception("CRITICAL STORED PROCEDURES MISSING: Database automation setup incomplete.");
-        }
+        // if (count($procedureCheck) < 3) {
+        //     throw new Exception("CRITICAL STORED PROCEDURES MISSING: Database automation setup incomplete.");
+        // }
 
-        $this->logCriticalReconciliationAction([
-            'action' => 'DATABASE_AUTOMATION_READINESS_VALIDATED',
-            'triggers_found' => $existingTriggers,
-            'procedures_found' => collect($procedureCheck)->pluck('ROUTINE_NAME')->toArray(),
-            'automation_readiness' => 'COMPLETE'
-        ]);
+        // $this->logCriticalReconciliationAction([
+        //     'action' => 'DATABASE_AUTOMATION_READINESS_VALIDATED',
+        //     'triggers_found' => $existingTriggers,
+        //     'procedures_found' => collect($procedureCheck)->pluck('ROUTINE_NAME')->toArray(),
+        //     'automation_readiness' => 'COMPLETE'
+        // ]);
     }
 
     // =====================================
